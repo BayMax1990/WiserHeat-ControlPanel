@@ -26,6 +26,25 @@ A short setup screen walks you through connecting to your hub the first time.
 - Temperature graphs and boiler statistics that the hub doesn't keep itself
 - An automatic backup before every schedule change
 
+<table>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/Schedules.png"><img src="docs/Schedules.png" alt="The Schedules tab: every room's day on one colour-coded timeline, grouped into Downstairs and Upstairs, with a line marking the current time"></a>
+      <br><sub><b>Schedules.</b> Every room's day on one timeline, in your own groups.</sub>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/Rooms.png"><img src="docs/Rooms.png" alt="The Rooms tab: a card for each room with its temperature, target, mode, a 24-hour graph and a Boost button"></a>
+      <br><sub><b>Rooms.</b> Live temperatures, modes, boosts and 24-hour graphs.</sub>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/Batteries.png"><img src="docs/Batteries.png" alt="The Batteries tab: every radiator valve and thermostat, worst first, with battery level, voltage, signal and status"></a>
+      <br><sub><b>Batteries.</b> Every valve and thermostat, worst first.</sub>
+    </td>
+  </tr>
+</table>
+
+<p align="center"><sub>Click a screenshot to see it full size.</sub></p>
+
 ## Why use it?
 
 The Wiser app is handy for a quick change from the sofa. When you want to see how the whole house is set up, or change several rooms together, a big screen makes it much easier. This panel shows every room side by side, so you can spot the room that's heating at 3 am, or line up bedtimes across the house in a few clicks.
