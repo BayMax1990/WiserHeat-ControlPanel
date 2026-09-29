@@ -11,7 +11,7 @@ See and control your whole home's Drayton Wiser heating on one screen:
 ## Getting started
 
 1. Start the app, then open **WiserHeat** in the Home Assistant sidebar. If it isn't there, turn on **Show in sidebar** on the app's Info tab.
-2. A short setup screen asks for your hub's address and secret, and explains how to find both.
+2. A short setup screen asks for your hub's address and secret. Press **Find my hub**, and the panel looks for your hub on your network and fills in its address. It then explains how to get the secret.
 3. Press **Connect**. Your schedules open once the panel has found your hub.
 
 Everything can be changed later under the cog at the top of the panel.

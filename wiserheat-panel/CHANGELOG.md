@@ -2,6 +2,7 @@
 
 ## 1.0.0
 
+- **Find my hub.** The setup screen and Settings can look for your Wiser hub on your network and fill in its address, instead of you typing it.
 - Installs and updates are much quicker. Home Assistant now downloads a ready-made app instead of building it on your device.
 - From now on, the app's version matches the panel's releases on GitHub.
 

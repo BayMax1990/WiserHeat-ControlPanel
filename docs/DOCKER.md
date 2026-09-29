@@ -43,7 +43,7 @@ Then run `docker compose up -d`.
 ## The first visit
 
 1. **Create a password.** The panel can be reached from other devices, so the first person to open it is asked to create one. Every device then signs in with it, and stays signed in for 30 days. To set it before anyone visits, see `PANEL_PASSWORD` below.
-2. **Connect to your hub.** A short setup screen asks for your hub's address and secret, and explains how to find both.
+2. **Connect to your hub.** A short setup screen asks for your hub's address and secret, and explains how to find both. Its **Find my hub** button can't search your network from inside Docker's usual network, so type the address. With host networking (see *Troubleshooting*), Find my hub works.
 
 ## Settings
 
@@ -139,7 +139,7 @@ If you put the panel behind your own reverse proxy (nginx, Caddy, Traefik and so
 
 **The container stops at once, saying it can't save to the data folder.** See *Folder permissions* above.
 
-**The panel can't reach the hub.** The machine running Docker must be able to reach the hub's address. Check with `ping <hub address>` on that machine. On some NAS setups, the container's own network can't reach the rest of your home network. In that case, add `network_mode: host` to the Compose file (or `--network host` to `docker run`) and remove the port mapping. The panel is then on port 8765 of the server itself.
+**The panel can't reach the hub.** The machine running Docker must be able to reach the hub's address. Check with `ping <hub address>` on that machine. On some NAS setups, the container's own network can't reach the rest of your home network. In that case, add `network_mode: host` to the Compose file (or `--network host` to `docker run`) and remove the port mapping. The panel is then on port 8765 of the server itself. It can then also hear the hub's announcements, so **Find my hub** works.
 
 **Forgotten password.** Remove the saved password, then restart. The next visit asks for a new one:
 

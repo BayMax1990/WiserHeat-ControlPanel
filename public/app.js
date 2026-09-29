@@ -101,6 +101,7 @@ const state = {
   setTest: null, // result of "Test connection": { busy } | { ok, msg }
   auth: null, // null when signed in; 'login', 'setup' or 'forbidden' while the sign-in screen shows
   setupStep: null, // 0–3 while the first-run setup screen shows
+  discover: null, // "Find my hub": { busy } | { hubs, docker, canSearch } | { error }
 };
 let editor = null;
 
@@ -1333,6 +1334,53 @@ function openPasswordModal(remove = false) {
 }
 
 // ---------------------------------------------------------------------------
+// "Find my hub": asks the server to look for Wiser hubs on the network, then fills in the address.
+
+function findHubHTML() {
+  const d = state.discover;
+  const current = String(state.setDraft.hubIp ?? state.settings?.hubIp ?? '');
+  const button = `<button class="btn small" data-act="find-hub" ${d?.busy ? 'disabled' : ''}>${icon('search')}${d?.busy ? 'Looking…' : 'Find my hub'}</button>`;
+  let msg = '';
+  if (d?.busy) {
+    msg = '<span class="find-msg">Looking for your hub on the network. This can take up to 20 seconds.</span>';
+  } else if (d?.error) {
+    msg = `<span class="find-msg bad">${icon('circle-alert')}<span>${esc(d.error)}</span></span>`;
+  } else if (d?.hubs?.length === 1) {
+    const h = d.hubs[0];
+    msg = `<span class="find-msg ok">${icon('check')}<span>Found ${h.name ? `<b>${esc(h.name)}</b> ` : 'your hub '}at <b>${esc(h.address)}</b>${current === h.address ? ', and filled it in.' : '.'}</span></span>
+      ${current === h.address ? '' : `<button class="btn small" data-act="use-hub" data-ip="${esc(h.address)}">Use it</button>`}`;
+  } else if (d?.hubs?.length > 1) {
+    msg = `<span class="find-msg">Found ${d.hubs.length} hubs. Choose yours:</span>
+      <span class="find-list">${d.hubs.map((h) => `<button class="btn small ${current === h.address ? 'primary' : ''}" data-act="use-hub" data-ip="${esc(h.address)}">${esc(h.name || 'Wiser hub')} <small>${esc(h.address)}</small></button>`).join('')}</span>`;
+  } else if (d) {
+    msg = `<span class="find-msg bad">${icon('circle-alert')}<span>${d.docker
+      ? "The panel can't search your network from inside Docker. Please type the address instead."
+      : "No hub found. Check it's switched on and on the same network as this panel, or type its address."}</span></span>`;
+  }
+  return `<div class="find-hub">${button}${msg}</div>`;
+}
+
+async function findHub() {
+  state.discover = { busy: true };
+  renderMain();
+  try {
+    state.discover = await api('GET', '/api/discover');
+    // One hub: fill it in straight away.
+    if (state.discover.hubs.length === 1) useHub(state.discover.hubs[0].address, false);
+  } catch (e) {
+    state.discover = { error: e.message };
+  }
+  renderMain();
+}
+
+function useHub(ip, render = true) {
+  state.setDraft.hubIp = ip;
+  state.setupError = '';
+  state.setTest = null;
+  if (render) renderMain();
+}
+
+// ---------------------------------------------------------------------------
 // First-run setup: shown until a hub is connected. Welcome, hub address, hub secret, done.
 
 const SETUP_STEPS = ['Welcome', 'Hub address', 'Hub secret', 'Done'];
@@ -1356,9 +1404,10 @@ function setupView() {
       <div class="setup-foot"><span></span><button class="btn primary" data-act="setup-next">Get started${icon('chevron-right')}</button></div>`;
   } else if (step === 1) {
     body = `<h2>Your hub's address</h2>
-      <p>Your Wiser hub has an address on your home network, such as <code>192.168.1.50</code>. To find it, open your router's list of connected devices and look for one named <b>WiserHeat</b> followed by letters and numbers.</p>
+      <p>Your Wiser hub has an address on your home network, such as <code>192.168.1.50</code>. Press <b>Find my hub</b> to look for it. Or type it in: your router's list of connected devices shows it, named <b>WiserHeat</b> followed by letters and numbers.</p>
       <label class="field">Hub address
         <input type="text" class="set-input" data-set="hubIp" data-k="setup-hub" value="${esc(d.hubIp ?? st.hubIp ?? '')}" placeholder="192.168.1.50" spellcheck="false" autocomplete="off" autocapitalize="off"></label>
+      ${findHubHTML()}
       <p class="setup-error" role="alert">${esc(state.setupError || '')}</p>
       <div class="setup-foot">${back}<button class="btn primary" data-act="setup-next">Next${icon('chevron-right')}</button></div>`;
   } else if (step === 2) {
@@ -1493,7 +1542,8 @@ function settingsView() {
     ${sectionHead('s-hub', 'wifi', 'Hub connection', "How this panel reaches your Wiser hub. The secret is saved in config.json on this computer, and isn't shown again once saved.")}
     <div class="diag-panel">
       <div class="setting">
-        <div><b>Hub address</b><p>The hub's IP address on your home network, for example 192.168.1.50. Your router's list of connected devices shows it, usually named WiserHeat followed by letters and numbers.</p></div>
+        <div><b>Hub address</b><p>The hub's IP address on your home network, for example 192.168.1.50. Press <b>Find my hub</b> to look for it, or check your router's list of connected devices for one named WiserHeat followed by letters and numbers.</p>
+          ${findHubHTML()}</div>
         <input type="text" class="set-input" data-set="hubIp" data-k="set-hub" value="${val('hubIp')}" placeholder="192.168.1.50" spellcheck="false" autocomplete="off" aria-label="Hub address">
       </div>
       <div class="setting stacked">
@@ -1523,6 +1573,7 @@ function settingsView() {
     </div>
 
     ${heating}
+    <p class="settings-version">WiserHeat Control Panel ${esc(st.version || '')} · <a href="https://github.com/BayMax1990/WiserHeat-ControlPanel" target="_blank" rel="noopener">Project page and help</a></p>
   </div>`;
 }
 
@@ -2687,6 +2738,8 @@ document.addEventListener('click', (e) => {
     case 'set-choice': return saveSettings({ [b.dataset.key]: Number(b.dataset.v) }, 'Saved');
     case 'set-test': return testHubConnection();
     case 'pick-icon': return openIconPicker(Number(b.dataset.room));
+    case 'find-hub': return findHub();
+    case 'use-hub': return useHub(b.dataset.ip);
     case 'setup-next': return setupNext();
     case 'setup-back': return setupGo(state.setupStep - 1);
     case 'setup-connect': return setupConnect();

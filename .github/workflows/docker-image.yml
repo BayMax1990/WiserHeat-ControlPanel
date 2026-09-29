@@ -27,6 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check the release tag matches package.json
+        if: github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(jq -r .version package.json)"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::The release is tagged ${GITHUB_REF_NAME}, but package.json says ${pkg}. Set \"version\" in package.json to ${tag}, commit, and release again."
+            exit 1
+          fi
+
       # Registry names must be lower case, and GitHub user names often aren't.
       - name: Image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wiserheat-panel" >> "$GITHUB_ENV"

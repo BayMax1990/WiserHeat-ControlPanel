@@ -16,7 +16,7 @@ A free control panel for Drayton Wiser heating systems. It talks straight to you
 - **As a Linux service**, on a Raspberry Pi or Linux server without Docker. One command installs it, and it starts by itself at boot. [Install on Linux](#install-on-linux).
 - **From your phone or tablet**, on your home network, protected by a password.
 
-A short setup screen walks you through connecting to your hub the first time.
+The first time, a short setup screen finds your hub on the network and walks you through connecting to it.
 
 **What you get:**
 
@@ -135,7 +135,7 @@ The cog in the top corner opens **Settings**. There you can:
 
 The first time it runs, a setup screen asks for two things:
 
-- **Your hub's address.** This is its IP address on your home network, for example `192.168.1.50`. Your router's list of connected devices shows it, usually with a name starting with *WiserHeat*.
+- **Your hub's address.** Press **Find my hub**, and the panel looks for it on your network and fills it in. Otherwise, type its IP address, for example `192.168.1.50`. Your router's list of connected devices shows it, usually with a name starting with *WiserHeat*.
 - **Your hub's secret.** This is a long code that lets the panel control the hub. Press the setup button on the hub once so its light flashes, and join the *WiserHeat* Wi-Fi network it creates. Then open `http://192.168.8.1/secret` in your browser and copy the text. Press the setup button again to finish.
 
 Press **Connect**. The panel lists the rooms it found, then opens your schedules. You can change these details later in **Settings**.
@@ -260,9 +260,10 @@ The panel is `server.js` and the `public/` folder. One Docker image, built from 
 
 **Releasing a new version:**
 
-1. Add a section to `wiserheat-panel/CHANGELOG.md` for the new version, so Home Assistant users see what's changed. Commit and push.
-2. On GitHub, create a release with a tag like `v1.1.0`. Use all three numbers.
-3. The *Docker image* workflow in `.github/workflows/` then:
+1. Set `version` in `package.json` to the new version, for example `1.1.0`. The panel shows it in Settings.
+2. Add a section for it to `CHANGELOG.md`, and to `wiserheat-panel/CHANGELOG.md` for Home Assistant users. Commit and push.
+3. On GitHub, create a release tagged `v1.1.0`, the same version with a `v` in front, and paste in the notes from `CHANGELOG.md`. Use all three numbers. The workflow stops with a clear message if the tag doesn't match `package.json`.
+4. The *Docker image* workflow in `.github/workflows/` then:
    - builds the image for amd64 and arm64, and publishes `1.1.0`, `1.1` and `latest` to `ghcr.io/baymax1990/wiserheat-panel`;
    - checks anyone can download it, then sets the Home Assistant app's version to `1.1.0` and commits that.
 

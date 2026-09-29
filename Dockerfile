@@ -18,7 +18,7 @@ RUN apk add --no-cache su-exec \
  && chown node:node /data
 
 WORKDIR /app
-COPY server.js ./
+COPY server.js package.json ./
 COPY public ./public
 COPY wiserheat-start.sh /usr/local/bin/wiserheat-start
 # Strip Windows line endings, in case the script was checked out on Windows.

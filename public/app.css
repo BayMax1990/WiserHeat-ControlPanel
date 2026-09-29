@@ -449,6 +449,22 @@ body.onboarding .tabs { visibility: hidden; } /* keeps its space, so the theme b
   .setup-steps li.on span { display: inline; }
 }
 
+.settings-version { margin: 28px 0 8px; text-align: center; color: var(--ink-3); font-size: 13px; }
+.settings-version a { color: var(--ink-2); }
+
+/* ---------- Find my hub ---------- */
+
+.find-hub { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 2px 0 12px; }
+.settings-page .find-hub { margin: 10px 0 0; }
+.find-msg { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
+.find-msg svg { width: 15px; height: 15px; flex: none; }
+.find-msg.ok { color: var(--good); }
+.find-msg.ok b { color: var(--ink); }
+.find-msg.bad { color: var(--danger); }
+.find-list { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.find-list small { color: inherit; opacity: .7; font-weight: 500; margin-left: 4px; }
+.find-hub .btn svg { width: 14px; height: 14px; }
+
 /* ---------- Sign-in screen ---------- */
 
 body.locked .tabs, body.locked .top-right, body.locked #banner, body.locked #draftBar, body.locked .brand-sub { display: none !important; }

@@ -10,12 +10,15 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const dgram = require('dgram');
 
 // Everything the panel saves goes in one data folder. By default that's ./data, with
 // config.json beside server.js. Set DATA_DIR (as the Docker image does) to keep all of it,
 // config.json included, in one folder that updates never touch.
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
+let VERSION = 'unknown';
+try { VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version || VERSION; } catch { /* not shipped */ }
 
 // Running as a Home Assistant app? The app's Dockerfile says so, and Home Assistant also always gives
 // its apps a /data/options.json file, so the panel still knows if that setting goes missing. Home
@@ -279,7 +282,7 @@ function cleanLayout(b) {
 // Settings. The secret is write-only: the page is only ever told whether one is saved.
 
 const publicSettings = (req) => ({
-  title: config.title, defaultTitle: DEFAULTS.title, hubIp: config.hubIp, hasSecret: !!config.secret, port: PORT,
+  version: VERSION, title: config.title, defaultTitle: DEFAULTS.title, hubIp: config.hubIp, hasSecret: !!config.secret, port: PORT,
   historyIntervalSeconds: config.historyIntervalSeconds, historyKeepHours: config.historyKeepHours, pricePerKwh: config.pricePerKwh, roomIcons: config.roomIcons || {},
   password: { set: passwordSet(), fromEnv: !!ENV_PASSWORD },
   network: { exposed: EXPOSED, host: HOST, urls: networkUrls(), local: isLocal(req), dataDir: DATA },
@@ -330,6 +333,208 @@ function updateSettings(b) {
   config = next;
   saveConfig();
   if (intervalChanged || hubChanged) startHistory();
+}
+
+// ---------------------------------------------------------------------------
+// Finding the hub ("Find my hub" in setup and Settings).
+//
+// Wiser hubs announce themselves with multicast DNS as "WiserHeatXXXXXX", a web service on port 80.
+// Inside Docker or Home Assistant those announcements can't be heard, so the panel checks each
+// address on the home network instead. Asked for data without the secret, a Wiser hub always
+// answers 401 {"Error":"Unauthorized"}, which is how it's recognised.
+
+const MDNS = { address: '224.0.0.251', port: 5353 };
+
+// This machine's own network connections (IPv4, not loopback). With realOnly, leave out virtual
+// ones (WSL, Docker, virtual machines, VPNs), which never have a hub on them.
+const VIRTUAL = /vethernet|wsl|docker|^br-|^veth|virbr|vmnet|vbox|virtualbox|hyper-v|tailscale|zerotier|^zt|wireguard|^wg|^tun|^tap/i;
+const lanIPv4 = (realOnly = false) => Object.entries(os.networkInterfaces())
+  .filter(([name]) => !realOnly || !VIRTUAL.test(name))
+  .flatMap(([, addrs]) => addrs || [])
+  .filter((a) => a.family === 'IPv4' && !a.internal);
+
+function dnsQuestion(name) {
+  const labels = name.split('.').map((l) => Buffer.concat([Buffer.from([l.length]), Buffer.from(l)]));
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(1, 4); // one question
+  const tail = Buffer.alloc(4);
+  tail.writeUInt16BE(12, 0); // PTR
+  tail.writeUInt16BE(0x8001, 2); // class IN, asking for replies straight back to us
+  return Buffer.concat([header, ...labels, Buffer.from([0]), tail]);
+}
+
+function readDnsName(buf, off) {
+  const labels = [];
+  let end = null;
+  for (let hops = 0; hops < 32; hops++) {
+    const len = buf[off];
+    if (len === undefined) break;
+    if (len === 0) { end ??= off + 1; break; }
+    if ((len & 0xc0) === 0xc0) { end ??= off + 2; off = ((len & 0x3f) << 8) | buf[off + 1]; continue; }
+    labels.push(buf.toString('utf8', off + 1, off + 1 + len));
+    off += len + 1;
+  }
+  return [labels.join('.'), end ?? off];
+}
+
+// The answer records in a DNS message: [{ type: 'A' | 'PTR' | 'SRV', name, value }].
+function dnsAnswers(buf) {
+  const out = [];
+  let off = 12;
+  for (let i = 0; i < buf.readUInt16BE(4); i++) off = readDnsName(buf, off)[1] + 4;
+  const total = buf.readUInt16BE(6) + buf.readUInt16BE(8) + buf.readUInt16BE(10);
+  for (let i = 0; i < total && off < buf.length; i++) {
+    const [name, next] = readDnsName(buf, off);
+    const type = buf.readUInt16BE(next), len = buf.readUInt16BE(next + 8), data = next + 10;
+    if (type === 1 && len === 4) out.push({ type: 'A', name, value: [...buf.subarray(data, data + 4)].join('.') });
+    if (type === 12) out.push({ type: 'PTR', name, value: readDnsName(buf, data)[0] });
+    if (type === 33) out.push({ type: 'SRV', name, value: readDnsName(buf, data + 6)[0] });
+    off = data + len;
+  }
+  return out;
+}
+
+// Listens for a couple of seconds for hubs announcing themselves. Resolves to [{ name, address }].
+function mdnsFindHubs(ms = 2500) {
+  return new Promise((resolve) => {
+    const hubs = new Map(); // instance name -> { name, address }
+    const hostIps = new Map(); // "WiserHeat037256.local" -> ip
+    const srvTargets = new Map(); // instance -> host name
+    const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try { sock.close(); } catch { /* already closed */ }
+      for (const [inst, hub] of hubs) hub.address = hostIps.get(srvTargets.get(inst)) || hostIps.get(`${hub.name}.local`) || hub.address;
+      resolve([...hubs.values()]);
+    };
+    sock.on('error', finish);
+    sock.on('message', (msg, from) => {
+      let answers;
+      try { answers = dnsAnswers(msg); } catch { return; }
+      for (const a of answers) {
+        if (a.type === 'A') hostIps.set(a.name.toLowerCase(), a.value);
+        const inst = a.type === 'PTR' ? a.value : a.type === 'SRV' ? a.name : null;
+        const label = inst?.split('.')[0] || '';
+        if (!/^wiserheat/i.test(label)) continue;
+        if (a.type === 'SRV') srvTargets.set(inst, a.value.toLowerCase());
+        if (!hubs.has(inst)) hubs.set(inst, { name: label, address: from.address }); // the hub itself answered
+      }
+    });
+    sock.bind(0, () => {
+      // Ask on every network connection, one after another (the interface is a socket-wide setting).
+      const q = dnsQuestion('_http._tcp.local');
+      const ifaces = lanIPv4().map((i) => i.address);
+      const next = () => {
+        if (done) return;
+        const ip = ifaces.shift();
+        if (ip === undefined) return;
+        try { sock.setMulticastInterface(ip); } catch { /* not supported here */ }
+        sock.send(q, MDNS.port, MDNS.address, next);
+      };
+      if (ifaces.length) next(); else sock.send(q, MDNS.port, MDNS.address, () => {});
+    });
+    setTimeout(finish, ms);
+  });
+}
+
+// Asks a device directly for its name (a unicast mDNS reverse lookup), e.g. "WiserHeat037256".
+function mdnsNameOf(ip, ms = 1000) {
+  return new Promise((resolve) => {
+    const sock = dgram.createSocket('udp4');
+    let done = false;
+    const finish = (name) => {
+      if (done) return;
+      done = true;
+      try { sock.close(); } catch { /* already closed */ }
+      resolve(name);
+    };
+    sock.on('error', () => finish(null));
+    sock.on('message', (msg) => {
+      try {
+        const ptr = dnsAnswers(msg).find((a) => a.type === 'PTR');
+        if (ptr) finish(ptr.value.replace(/\.local$/i, ''));
+      } catch { /* not a DNS reply */ }
+    });
+    sock.send(dnsQuestion(`${ip.split('.').reverse().join('.')}.in-addr.arpa`), MDNS.port, ip, (e) => { if (e) finish(null); });
+    setTimeout(() => finish(null), ms);
+  });
+}
+
+// Is there a Wiser hub at this address? (No secret needed or sent.)
+async function looksLikeHub(ip, timeoutMs = 1500) {
+  try {
+    const res = await fetch(`http://${ip}/data/domain/`, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.status === 401 && /"Error"\s*:\s*"Unauthorized"/.test(await res.text());
+  } catch {
+    return false;
+  }
+}
+
+// Which home networks to check, as "a.b.c" /24 prefixes.
+async function networksToScan() {
+  let cidrs = [];
+  if (HOME_ASSISTANT && process.env.SUPERVISOR_TOKEN) {
+    // Home Assistant knows the machine's real network; the app itself only sees its own.
+    try {
+      const r = await fetch(`${process.env.SUPERVISOR_API || 'http://supervisor'}/network/info`, {
+        headers: { Authorization: `Bearer ${process.env.SUPERVISOR_TOKEN}` }, signal: AbortSignal.timeout(5000),
+      });
+      for (const i of (await r.json())?.data?.interfaces || []) {
+        if (i.enabled === false || i.connected === false) continue;
+        cidrs.push(...[].concat(i.ipv4?.address || []));
+      }
+    } catch (e) {
+      console.warn(`[discover] couldn't ask Home Assistant for its network: ${e.message}`);
+    }
+  } else if (!IN_DOCKER) {
+    cidrs = lanIPv4(true).map((i) => i.address);
+  }
+  const own = new Set(lanIPv4().map((i) => i.address));
+  const prefixes = new Set();
+  for (const c of cidrs) {
+    const m = String(c).match(/^(\d+\.\d+\.\d+)\.(\d+)/);
+    if (m && !m[1].startsWith('169.254') && !m[1].startsWith('172.30.3')) prefixes.add(m[1]); // skip link-local and Home Assistant's own
+  }
+  return { prefixes: [...prefixes], own };
+}
+
+async function scanForHubs() {
+  const { prefixes, own } = await networksToScan();
+  const ips = prefixes.flatMap((p) => Array.from({ length: 254 }, (_, i) => `${p}.${i + 1}`)).filter((ip) => !own.has(ip));
+  const found = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < ips.length) {
+      const ip = ips[next++];
+      if (await looksLikeHub(ip)) found.push({ name: null, address: ip });
+    }
+  };
+  await Promise.all(Array.from({ length: 48 }, worker));
+  return { hubs: found, scanned: prefixes.map((p) => `${p}.0/24`) };
+}
+
+let discovering = null; // one search at a time; a second click shares the first's result
+function discoverHubs(method) {
+  discovering ||= (async () => {
+    let hubs = method === 'scan' ? [] : await mdnsFindHubs();
+    let scanned = [];
+    if (!hubs.length && method !== 'mdns') ({ hubs, scanned } = await scanForHubs());
+    // Double-check each one really is a hub, and drop duplicates.
+    const seen = new Set();
+    const checked = [];
+    for (const h of hubs) {
+      if (seen.has(h.address)) continue;
+      seen.add(h.address);
+      if (!(await looksLikeHub(h.address, 3000))) continue;
+      h.name ||= await mdnsNameOf(h.address);
+      checked.push(h);
+    }
+    const canSearch = !IN_DOCKER || (HOME_ASSISTANT && !!process.env.SUPERVISOR_TOKEN);
+    return { hubs: checked, scanned, canSearch, docker: IN_DOCKER && !HOME_ASSISTANT };
+  })().finally(() => { discovering = null; });
+  return discovering;
 }
 
 // Tries an address and secret (or the saved ones) without saving them.
@@ -555,6 +760,7 @@ async function api(req, res, url) {
   }
   if (m === 'PUT' && p === '/api/auth/password') return changePassword(req, res);
   if (m === 'POST' && p === '/api/settings/test') return send(res, 200, await testHub(await readBody(req)));
+  if (m === 'GET' && p === '/api/discover') return send(res, 200, await discoverHubs(url.searchParams.get('method')));
 
   if (m === 'GET' && p === '/api/state') {
     const domain = await getDomain();
@@ -694,14 +900,14 @@ for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { console.log(`St
 
 http.createServer(handle).listen(PORT, HOST, () => {
   if (HOME_ASSISTANT) {
-    console.log(`WiserHeat Control Panel running as a Home Assistant app. Open it from the Home Assistant sidebar.${hubReady() ? ` Hub: ${config.hubIp}` : ' It will ask for your hub details.'}`);
+    console.log(`WiserHeat Control Panel ${VERSION} running as a Home Assistant app. Open it from the Home Assistant sidebar.${hubReady() ? ` Hub: ${config.hubIp}` : ' It will ask for your hub details.'}`);
     return;
   }
   if (IN_DOCKER) {
-    console.log(`WiserHeat Control Panel running in Docker, on port ${PORT} inside the container. ${hubReady() ? `Hub: ${config.hubIp}` : 'It will ask for your hub details.'}`);
+    console.log(`WiserHeat Control Panel ${VERSION} running in Docker, on port ${PORT} inside the container. ${hubReady() ? `Hub: ${config.hubIp}` : 'It will ask for your hub details.'}`);
     console.log('Open it at http://<your server\'s address>:<the port you published>, for example http://192.168.1.20:8765');
   } else {
-    console.log(`WiserHeat Control Panel running at http://localhost:${PORT}  ${hubReady() ? `(hub ${config.hubIp})` : '(open it and enter your hub details in Settings)'}`);
+    console.log(`WiserHeat Control Panel ${VERSION} running at http://localhost:${PORT}  ${hubReady() ? `(hub ${config.hubIp})` : '(open it and enter your hub details in Settings)'}`);
   }
   if (EXPOSED) {
     const urls = networkUrls();

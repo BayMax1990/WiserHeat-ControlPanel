@@ -129,8 +129,8 @@ say "$([ "$UPDATING" = 1 ] && echo Updating || echo Installing) the panel in $AP
 id "$SERVICE_USER" >/dev/null 2>&1 || \
   useradd --system --user-group --no-create-home --home-dir "$DATA_DIR" --shell "$(command -v nologin || echo /usr/sbin/nologin)" "$SERVICE_USER"
 mkdir -p "$APP_DIR"
-rm -rf "$APP_DIR/server.js" "$APP_DIR/public"
-cp "$SRC/server.js" "$APP_DIR/"
+rm -rf "$APP_DIR/server.js" "$APP_DIR/package.json" "$APP_DIR/public"
+cp "$SRC/server.js" "$SRC/package.json" "$APP_DIR/"
 cp -r "$SRC/public" "$APP_DIR/"
 chown -R root:root "$APP_DIR"
 chmod -R u=rwX,go=rX "$APP_DIR"

@@ -2,5 +2,6 @@
 # own settings and secret, out of it.
 *
 !server.js
+!package.json
 !public/
 !wiserheat-start.sh
