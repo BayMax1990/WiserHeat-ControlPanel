@@ -252,7 +252,7 @@ main { padding: 0 28px; max-width: 1500px; margin: 0 auto; }
 }
 .tl-head, .tl-row {
   display: grid;
-  grid-template-columns: minmax(230px, 280px) 1fr;
+  grid-template-columns: minmax(230px, 280px) 1fr 44px;
 }
 .tl-head { border-bottom: 1px solid var(--line); background: var(--panel-2); }
 .tl-head .label-col { padding: 10px 16px; display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
@@ -355,6 +355,109 @@ main { padding: 0 28px; max-width: 1500px; margin: 0 auto; }
 .draft-bar p span { opacity: .7; font-weight: 500; }
 .draft-bar .btn { background: transparent; color: var(--panel); border-color: color-mix(in oklab, var(--panel) 30%, transparent); }
 .draft-bar .btn.save { background: var(--warm); border-color: var(--warm); color: #fff; }
+
+/* ---------- Settings page ---------- */
+
+.icon-btn[aria-pressed="true"] { color: var(--ink); border-color: var(--ink-3); background: var(--panel-2); }
+.page-title { font: 700 28px var(--display); letter-spacing: -.02em; margin: 4px 0 14px; display: flex; align-items: center; gap: 10px; }
+.page-title svg { width: 26px; height: 26px; color: var(--ink-2); }
+.settings-page .setting > div:first-child { min-width: 0; max-width: 62ch; }
+.settings-page .seg { flex-wrap: wrap; }
+.settings-page code { font-size: 12.5px; background: var(--panel-2); border: 1px solid var(--line-2); padding: 0 5px; border-radius: 5px; }
+.set-input {
+  width: min(340px, 100%); flex: none;
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); color: var(--ink); font: 500 14.5px var(--body);
+}
+.set-input:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* The secret gets the full width, in a font where every character is easy to check. */
+.setting.stacked { flex-direction: column; align-items: stretch; gap: 10px; }
+.set-secret { width: 100%; resize: vertical; min-height: 64px; font: 500 13.5px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; word-break: break-all; }
+.set-price { margin: 0; flex: none; }
+.set-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; padding-top: 14px; }
+.set-result { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+.set-result.ok { color: var(--good); }
+.set-result.bad { color: var(--danger); }
+.set-result svg { width: 16px; height: 16px; }
+
+.icon-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.icon-room {
+  display: flex; align-items: center; gap: 10px; text-align: left; min-width: 0;
+  padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel); color: var(--ink);
+}
+.icon-room:hover { border-color: var(--ink-3); }
+.icon-room > span:last-child { min-width: 0; }
+.icon-room b { display: block; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-room small { color: var(--ink-3); font-size: 12px; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.icon-choice {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px 10px;
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel); color: var(--ink-2); font-size: 12.5px; font-weight: 600;
+}
+.icon-choice svg { width: 22px; height: 22px; }
+.icon-choice:hover { color: var(--ink); border-color: var(--ink-3); }
+.icon-choice[aria-pressed="true"] { color: var(--ink); border-color: var(--focus); box-shadow: inset 0 0 0 1px var(--focus); background: color-mix(in oklab, var(--focus) 8%, var(--panel)); }
+
+@media (max-width: 700px) {
+  .settings-page .setting { flex-direction: column; align-items: stretch; }
+  .settings-page .setting > .seg { align-self: flex-start; }
+  .set-input { width: 100%; }
+}
+
+/* ---------- Room order and groups (both the timeline and the Rooms tab) ---------- */
+
+.drag-handle {
+  display: grid; place-items: center; align-self: center; justify-self: center;
+  width: 30px; height: 36px; padding: 0; border: 0; border-radius: 8px;
+  background: none; color: var(--ink-3); cursor: grab; touch-action: none;
+}
+.drag-handle:hover, .drag-handle:focus-visible { color: var(--ink); background: color-mix(in oklab, var(--ink) 7%, transparent); }
+.drag-handle svg { width: 18px; height: 18px; }
+
+.lay-head { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.group-name {
+  border: 0; background: none; padding: 2px 0; cursor: pointer; color: var(--ink);
+  font: 700 12.5px/1.2 var(--body); letter-spacing: .08em; text-transform: uppercase;
+}
+.group-name:hover { color: var(--focus); }
+.group-count { font-size: 12.5px; font-weight: 600; color: var(--ink-3); margin-right: auto; }
+.lay-head .group-del { width: 30px; height: 30px; border-color: transparent; background: none; }
+.lay-head .group-del svg { width: 15px; height: 15px; }
+.lay-head .group-del:hover { color: var(--danger); border-color: transparent; }
+@media (hover: hover) {
+  .lay-head .group-del { opacity: 0; }
+  .lay-head:hover .group-del, .lay-head .group-del:focus-visible { opacity: 1; }
+}
+.lay-hint {
+  grid-column: 1 / -1; padding: 14px 16px; text-align: center;
+  border: 1.5px dashed var(--line); border-radius: 12px;
+  color: var(--ink-3); font-size: 13px; font-weight: 600;
+}
+.lay-body:has(> .lay-placeholder) > .lay-hint { display: none; }
+
+.timeline .lay-head { padding: 4px 7px 4px 16px; background: var(--panel-2); border-bottom: 1px solid var(--line); box-shadow: 0 -1px 0 var(--line); }
+.timeline .lay-hint { margin: 10px 16px; }
+.card-layout .lay-section + .lay-section { margin-top: 26px; }
+.card-layout .lay-section:first-child:not(:has(.lay-item, .lay-placeholder)) + .lay-section { margin-top: 0; }
+.card-layout .lay-head { padding: 0 2px 6px 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.card-layout .group-name { font: 650 20px var(--display); letter-spacing: -.01em; text-transform: none; }
+.card-head .drag-handle { margin: -6px -8px -6px -2px; }
+
+/* While dragging: the lifted item follows the pointer, and the placeholder marks where it will land. */
+.lay-placeholder {
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--focus) 7%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--focus) 40%, transparent);
+}
+.timeline .lay-placeholder { margin: 0 8px; }
+.card-layout .lay-placeholder { border-radius: 18px; }
+.lifted { z-index: 60; pointer-events: none; box-shadow: 0 0 0 1px var(--line), 0 18px 40px -12px rgb(0 0 0 / .4); }
+.tl-row.lifted, .lay-section.lifted { background: var(--panel); border-radius: 12px; }
+.card-layout .lay-section.lifted { padding: 0 8px 0 12px; }
+.card-layout .lay-section.lifted .lay-head { border-color: transparent; }
+.lay-root.groups-only .lay-body { display: none; }
+.card-layout.groups-only .lay-section + .lay-section { margin-top: 10px; }
+body.row-dragging, body.row-dragging * { cursor: grabbing !important; user-select: none; }
 
 /* ---------- Rooms view ---------- */
 
@@ -870,6 +973,9 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
   .brand-flame { width: 28px; height: 28px; }
   main, #banner { padding: 0 16px; }
   .tl-head, .tl-row { grid-template-columns: 1fr; }
+  .tl-row { grid-template-columns: 1fr auto; }
+  .tl-row .band-col { grid-column: 1 / -1; }
+  .tl-row .drag-handle { grid-column: 2; grid-row: 1; margin-right: 8px; }
   .tl-head .label-col { display: none; }
   .tl-row .label-col { padding-bottom: 0; }
   .timeline { --pl: 16px; --pr: 16px; }

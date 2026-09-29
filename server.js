@@ -16,33 +16,50 @@ const BACKUPS = path.join(DATA, 'backups');
 const HISTORY_FILE = path.join(DATA, 'history.json');
 const LAYOUT_FILE = path.join(DATA, 'layout.json');
 
-const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+// Settings live in config.json, which the Settings page writes. With no config.json the
+// server still starts, and the page asks for the hub's address and secret.
+const CONFIG_FILE = path.join(ROOT, 'config.json');
+const DEFAULTS = { title: 'Wiser Heating', hubIp: '', secret: '', port: 8765, historyIntervalSeconds: 120, historyKeepHours: 168, pricePerKwh: 25, roomIcons: {} };
+let config = { ...DEFAULTS };
+try {
+  config = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) };
+} catch (e) {
+  if (e.code !== 'ENOENT') throw new Error(`config.json couldn't be read: ${e.message}`);
+}
+const saveConfig = () => fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+const hubReady = () => !!(config.hubIp && config.secret);
+
 const PORT = Number(process.env.PORT) || config.port || 8765;
-const HUB = `http://${config.hubIp}`;
-const HISTORY_INTERVAL_MS = (config.historyIntervalSeconds || 120) * 1000;
-const HISTORY_KEEP_MS = (config.historyKeepHours || 168) * 3600 * 1000;
+const historyIntervalMs = () => (config.historyIntervalSeconds || 120) * 1000;
+const historyKeepMs = () => (config.historyKeepHours || 168) * 3600 * 1000;
 
 fs.mkdirSync(BACKUPS, { recursive: true });
 
 // ---------------------------------------------------------------------------
 // Hub access. The hub is a small embedded device, so requests are serialised.
 
+async function hubFetch(ip, secret, method, urlPath, body) {
+  const res = await fetch(`http://${ip}${urlPath}`, {
+    method,
+    headers: { SECRET: secret, 'Content-Type': 'application/json;charset=UTF-8' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const msg = res.status === 401 || res.status === 403
+      ? 'The hub rejected the secret. Check it in Settings.'
+      : `Hub responded ${res.status} to ${method} ${urlPath}${text ? ': ' + text.slice(0, 200) : ''}`;
+    throw Object.assign(new Error(msg), { status: 502 });
+  }
+  try { return text ? JSON.parse(text) : null; } catch { return text; }
+}
+
 let queue = Promise.resolve();
 function hub(method, urlPath, body) {
   const run = async () => {
-    const res = await fetch(HUB + urlPath, {
-      method,
-      headers: { SECRET: config.secret, 'Content-Type': 'application/json;charset=UTF-8' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      const err = new Error(`Hub responded ${res.status} to ${method} ${urlPath}${text ? ': ' + text.slice(0, 200) : ''}`);
-      err.status = 502;
-      throw err;
-    }
-    try { return text ? JSON.parse(text) : null; } catch { return text; }
+    if (!hubReady()) throw Object.assign(new Error("The hub isn't set up yet. Open Settings and enter its address and secret."), { status: 503 });
+    return hubFetch(config.hubIp, config.secret, method, urlPath, body);
   };
   const p = queue.then(run, run);
   queue = p.catch(() => {});
@@ -77,7 +94,7 @@ let lastWifiRssi = null;
 function recordHistory(domain) {
   const t = Date.now();
   const last = history[history.length - 1];
-  if (last && t - last.t < HISTORY_INTERVAL_MS / 2) return;
+  if (last && t - last.t < historyIntervalMs() / 2) return;
   const r = {};
   for (const room of domain.Room || []) {
     r[room.id] = [room.CalculatedTemperature, room.CurrentSetPoint, room.PercentageDemand ?? 0];
@@ -85,17 +102,23 @@ function recordHistory(domain) {
   const p = {};
   for (const plug of domain.SmartPlug || []) p[plug.id] = [plug.InstantaneousDemand ?? 0, plug.CurrentSummationDelivered ?? null];
   history.push({ t, r, h: domain.HeatingChannel?.[0]?.HeatingRelayState === 'On' ? 1 : 0, p, w: lastWifiRssi });
-  history = history.filter((p) => t - p.t <= HISTORY_KEEP_MS);
+  history = history.filter((p) => t - p.t <= historyKeepMs());
   fs.writeFile(HISTORY_FILE, JSON.stringify(history), () => {});
 }
 
 async function pollHistory() {
+  if (!hubReady()) return;
   try { lastWifiRssi = (await getNetwork()).Station?.RSSI?.Current ?? null; } catch { lastWifiRssi = null; }
   try { recordHistory(await getDomain()); }
   catch (e) { console.warn('[history] ' + e.message); }
 }
-setInterval(pollHistory, HISTORY_INTERVAL_MS);
-pollHistory();
+let historyTimer = null;
+function startHistory() {
+  clearInterval(historyTimer);
+  historyTimer = setInterval(pollHistory, historyIntervalMs());
+  pollHistory();
+}
+startHistory();
 
 // ---------------------------------------------------------------------------
 // Schedule backups — written automatically before every schedule change.
@@ -225,7 +248,87 @@ function cleanLayout(b) {
 }
 
 // ---------------------------------------------------------------------------
+// Settings. The secret is write-only: the page is only ever told whether one is saved.
+
+const publicSettings = () => ({
+  title: config.title, hubIp: config.hubIp, hasSecret: !!config.secret, port: PORT,
+  historyIntervalSeconds: config.historyIntervalSeconds, historyKeepHours: config.historyKeepHours, pricePerKwh: config.pricePerKwh, roomIcons: config.roomIcons || {},
+});
+
+// A hub address: an IP or host name, optionally with a port. "http://" and trailing slashes are dropped.
+function cleanHost(v) {
+  const s = String(v ?? '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  return /^[a-z0-9.-]+(:\d{1,5})?$/i.test(s) ? s : null;
+}
+// Secrets are long and often pasted with stray spaces or line breaks, which are never part of one.
+const cleanSecret = (v) => (typeof v === 'string' ? v.replace(/\s+/g, '') : '');
+const bad = (msg) => Object.assign(new Error(msg), { status: 400 });
+function wholeIn(v, lo, hi, what) {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < lo || n > hi) throw bad(`${what} must be a whole number from ${lo} to ${hi}`);
+  return n;
+}
+
+function updateSettings(b) {
+  const next = { ...config };
+  if ('title' in b) next.title = String(b.title ?? '').trim().slice(0, 60) || DEFAULTS.title;
+  if ('hubIp' in b) {
+    next.hubIp = cleanHost(b.hubIp);
+    if (!next.hubIp) throw bad("That doesn't look like a hub address. Use something like 192.168.1.50");
+  }
+  const secret = cleanSecret(b.secret);
+  if (secret) next.secret = secret;
+  if (b.roomIcons && typeof b.roomIcons === 'object') { // { roomId: icon name, or null for the automatic one }
+    const icons = { ...(config.roomIcons || {}) };
+    for (const [id, name] of Object.entries(b.roomIcons)) {
+      if (!/^\d+$/.test(id)) continue;
+      if (name == null || name === '') delete icons[id];
+      else if (/^[a-z0-9-]{1,30}$/.test(name)) icons[id] = name;
+    }
+    next.roomIcons = icons;
+  }
+  if ('historyIntervalSeconds' in b) next.historyIntervalSeconds = wholeIn(b.historyIntervalSeconds, 30, 3600, 'The recording interval');
+  if ('historyKeepHours' in b) next.historyKeepHours = wholeIn(b.historyKeepHours, 24, 24 * 90, 'The history length');
+  if ('pricePerKwh' in b) {
+    const v = Number(b.pricePerKwh);
+    if (!(v > 0 && v < 1000)) throw bad('Enter a price between 0 and 1000 pence');
+    next.pricePerKwh = Math.round(v * 100) / 100;
+  }
+  const intervalChanged = next.historyIntervalSeconds !== config.historyIntervalSeconds;
+  const hubChanged = next.hubIp !== config.hubIp || next.secret !== config.secret;
+  config = next;
+  saveConfig();
+  if (intervalChanged || hubChanged) startHistory();
+}
+
+// Tries an address and secret (or the saved ones) without saving them.
+async function testHub(b) {
+  const ip = b.hubIp == null || b.hubIp === '' ? config.hubIp : cleanHost(b.hubIp);
+  const secret = cleanSecret(b.secret) || config.secret;
+  if (!ip) throw bad("That doesn't look like a hub address. Use something like 192.168.1.50");
+  if (!secret) throw bad('Paste the hub secret first');
+  try {
+    const d = await hubFetch(ip, secret, 'GET', '/data/domain/');
+    return { rooms: d?.Room?.length ?? 0, firmware: d?.System?.ActiveSystemVersion || null };
+  } catch (e) {
+    if (e.status) throw e;
+    throw Object.assign(new Error(`Couldn't reach a hub at ${ip}. Check the address, and that this computer is on the same network.`), { status: 504 });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // HTTP
+
+// Only answer API calls addressed to this computer, and not ones sent by other websites.
+// This stops a web page you visit from reading your heating or changing the hub secret.
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+function trusted(req) {
+  const host = req.headers.host || '';
+  if (!LOCAL_HOSTS.has(host.replace(/:\d+$/, ''))) return false;
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try { return new URL(origin).host === host; } catch { return false; }
+}
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.ico': 'image/x-icon' };
 
@@ -261,6 +364,13 @@ async function api(req, res, url) {
   const m = req.method;
   const p = url.pathname;
   let match;
+
+  if (m === 'GET' && p === '/api/settings') return send(res, 200, publicSettings());
+  if (m === 'PUT' && p === '/api/settings') {
+    updateSettings(await readBody(req));
+    return send(res, 200, publicSettings());
+  }
+  if (m === 'POST' && p === '/api/settings/test') return send(res, 200, await testHub(await readBody(req)));
 
   if (m === 'GET' && p === '/api/state') {
     const domain = await getDomain();
@@ -360,6 +470,10 @@ function serveStatic(req, res, url) {
   if (url.pathname === '/' ) file = path.join(PUBLIC, 'index.html');
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404); return res.end('Not found'); }
+    if (path.basename(file) === 'index.html') { // the page title, from Settings
+      const title = config.title.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      buf = Buffer.from(buf.toString('utf8').replaceAll('%TITLE%', title));
+    }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(buf);
   });
@@ -368,6 +482,7 @@ function serveStatic(req, res, url) {
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
+  if (!trusted(req)) return send(res, 403, { error: 'Open the panel at http://localhost to use it' });
   try {
     await api(req, res, url);
   } catch (e) {
@@ -379,5 +494,5 @@ http.createServer(async (req, res) => {
     send(res, status, { error: msg });
   }
 }).listen(PORT, '127.0.0.1', () => {
-  console.log(`WiserHeat Control Panel running at http://localhost:${PORT}  (hub ${config.hubIp})`);
+  console.log(`WiserHeat Control Panel running at http://localhost:${PORT}  ${hubReady() ? `(hub ${config.hubIp})` : '(open it and enter your hub details in Settings)'}`);
 });

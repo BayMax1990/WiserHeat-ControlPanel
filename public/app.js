@@ -49,17 +49,30 @@ function heatInk(c) {
 }
 const fillStyle = (c) => (c == null || c === OFF ? '' : `background:${heat(c)};color:${heatInk(c)}`);
 
-function roomIcon(name) {
+// Icons a room can have. The hub doesn't store one, so the panel guesses from the name
+// unless one is picked in Settings.
+const ROOM_ICONS = [
+  ['sofa', 'Sofa'], ['armchair', 'Armchair'], ['tv', 'TV'], ['bed-double', 'Double bed'], ['bed', 'Bed'], ['baby', 'Nursery'],
+  ['bath', 'Bath'], ['shower-head', 'Shower'], ['toilet', 'Toilet'], ['cooking-pot', 'Kitchen'], ['utensils', 'Dining'],
+  ['washing-machine', 'Utility'], ['door-open', 'Hall'], ['monitor', 'Computer'], ['briefcase', 'Office'], ['book-open', 'Books'],
+  ['gamepad-2', 'Games'], ['music', 'Music'], ['shirt', 'Dressing room'], ['car', 'Garage'], ['wrench', 'Workshop'],
+  ['sun', 'Conservatory'], ['lamp', 'Lamp'], ['heater', 'Radiator'], ['house', 'House'],
+];
+
+function guessRoomIcon(name) {
   const n = name.toLowerCase();
   const map = [
     [/toilet|\bwc\b|cloak/, 'toilet'], [/bath|shower|en.?suite/, 'bath'], [/kitchen/, 'cooking-pot'],
     [/dining/, 'utensils'], [/lounge|living|sitting|family/, 'sofa'], [/snug|\bden\b/, 'armchair'],
     [/nursery|baby/, 'baby'], [/mummy|daddy|master|main bed/, 'bed-double'], [/bed/, 'bed'],
     [/utility|laundry|wash/, 'washing-machine'], [/hall|landing|stair|porch/, 'door-open'],
-    [/cave|games|play/, 'gamepad-2'], [/office|study/, 'monitor'],
+    [/cave|games|play/, 'gamepad-2'], [/office|study/, 'monitor'], [/garage/, 'car'], [/tv|media|cinema/, 'tv'],
+    [/library/, 'book-open'], [/dressing|wardrobe/, 'shirt'], [/workshop/, 'wrench'], [/music/, 'music'],
+    [/conservatory|sun ?room|orangery/, 'sun'],
   ];
   return (map.find(([re]) => re.test(n)) || [0, 'heater'])[1];
 }
+const roomIcon = (r) => state.settings?.roomIcons?.[r.id] || guessRoomIcon(r.Name);
 
 // ---------------------------------------------------------------------------
 // State
@@ -83,6 +96,9 @@ const state = {
   diag: null, // { network, error }
   pendingAwayCap: null,
   layout: { rooms: [], groups: [] }, // room order and groups, shared by the timeline and the Rooms tab
+  settings: null, // from /api/settings; never includes the secret
+  setDraft: {}, // Settings fields typed but not saved yet
+  setTest: null, // result of "Test connection": { busy } | { ok, msg }
 };
 let editor = null;
 
@@ -197,8 +213,28 @@ async function refresh() {
   state.refreshing = false;
   $('#refreshBtn').classList.remove('spin');
   if (!state.day) state.day = today();
-  renderAll();
+  // Re-rendering mid-typing would lose the caret, so leave the page alone until the field is left.
+  if (document.activeElement?.matches?.('#main input:not([type="checkbox"]), #main textarea')) { renderHeader(); renderBanner(); renderDraftBar(); }
+  else renderAll();
   if (refreshAgain) { refreshAgain = false; refresh(); }
+}
+
+async function loadSettings() {
+  try { state.settings = await api('GET', '/api/settings'); } catch (e) { toast(e.message, true); }
+  applyTitle();
+  // The unit price used to be kept in this browser. Carry it over once.
+  const oldPrice = store.get('pricePerKwh', null);
+  if (oldPrice != null && state.settings) {
+    try { localStorage.removeItem('wiser.pricePerKwh'); } catch { /* ignore */ }
+    if (oldPrice !== state.settings.pricePerKwh) await saveSettings({ pricePerKwh: oldPrice });
+  }
+}
+const hubConfigured = () => !!(state.settings?.hubIp && state.settings?.hasSecret);
+function applyTitle() {
+  const t = state.settings?.title;
+  if (!t) return;
+  $('#appTitle').textContent = t;
+  document.title = t;
 }
 
 async function loadHistory() {
@@ -229,10 +265,15 @@ function renderAll() {
 
 function renderHeader() {
   for (const b of $$('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.view === state.view));
+  $('#settingsBtn').setAttribute('aria-pressed', String(state.view === 'settings'));
   const d = state.domain;
   const flame = $('#brandFlame');
   $('#boostBtn').disabled = !d?.Room?.length;
-  if (!d) { flame.classList.remove('on'); return; }
+  if (!d) {
+    flame.classList.remove('on');
+    if (state.settings && !hubConfigured()) $('#systemLine').textContent = 'Not connected to a hub yet.';
+    return;
+  }
   const ch = d.HeatingChannel?.[0];
   const firing = ch?.HeatingRelayState === 'On';
   flame.classList.toggle('on', firing);
@@ -255,9 +296,12 @@ function updateNow() {
 
 function renderBanner() {
   const el = $('#banner');
-  if (state.error) {
+  const toSettings = state.view === 'settings' ? '' : `<button class="btn" data-act="open-settings">${icon('settings')}Settings</button>`;
+  if (state.settings && !hubConfigured()) {
+    el.innerHTML = `<div class="banner">${icon('settings')}<p><strong>Welcome.</strong> To get started, enter your hub's address and secret in Settings.</p>${toSettings}</div>`;
+  } else if (state.error) {
     el.innerHTML = `<div class="banner error">${icon('wifi-off')}<p><strong>Can't reach the hub.</strong> ${esc(state.error)}</p>
-      <button class="btn" data-act="refresh">${icon('refresh-cw')}Try again</button></div>`;
+      ${toSettings}<button class="btn" data-act="refresh">${icon('refresh-cw')}Try again</button></div>`;
   } else if (isAway()) {
     el.innerHTML = `<div class="banner">${icon('plane')}<p><strong>Away mode is on.</strong> Every room is held at ${fmtT(sys().AwayModeSetPointLimit)} or below, whatever its schedule says.</p>
       <button class="btn" data-act="away" data-on="0">${icon('house')}Turn off away mode</button></div>`;
@@ -279,16 +323,19 @@ function renderMain() {
   if (rowDrag) return; // re-rendering mid-drag would drop the row; the drop renders anyway
   const main = $('#main');
   const k = document.activeElement?.dataset?.k;
-  if (state.loading) {
+  if (state.view === 'settings') {
+    main.innerHTML = settingsView();
+  } else if (state.loading) {
     main.innerHTML = `<div class="loading">${icon('flame')}<p>Reading your heating system…</p></div>`;
     return;
-  }
-  if (!state.domain) {
-    main.innerHTML = `<div class="empty">${icon('wifi-off')}<p>No data from the hub yet. Check the hub address and secret in <b>config.json</b>, then restart the server.</p></div>`;
+  } else if (!state.domain) {
+    main.innerHTML = `<div class="empty">${icon('wifi-off')}<p>No data from the hub yet. Check the hub's address and secret in Settings.</p>
+      <button class="btn" data-act="open-settings">${icon('settings')}Open Settings</button></div>`;
     return;
+  } else {
+    const views = { rooms: roomsView, batteries: batteriesView, diagnostics: diagnosticsView };
+    main.innerHTML = (views[state.view] || schedulesView)();
   }
-  const views = { rooms: roomsView, batteries: batteriesView, diagnostics: diagnosticsView };
-  main.innerHTML = (views[state.view] || schedulesView)();
   if (k) $(`[data-k="${CSS.escape(k)}"]`, main)?.focus();
   updateNow();
 }
@@ -346,7 +393,7 @@ function schedulesView() {
     return `<div class="tl-row lay-item ${sel ? 'selected' : ''}" data-room="${r.id}">
       <div class="label-col">
         <input type="checkbox" class="room-check" data-act="select" data-room="${r.id}" data-k="sel-${r.id}" ${sel ? 'checked' : ''} ${s ? '' : 'disabled'} aria-label="Select ${esc(roomName(r))}">
-        <div class="room-ico">${icon(roomIcon(r.Name))}</div>
+        <div class="room-ico">${icon(roomIcon(r))}</div>
         <div class="room-meta">
           <div class="room-name" title="${esc(roomName(r))}">${esc(roomName(r))}</div>
           <div class="room-status">${status}</div>
@@ -533,7 +580,7 @@ function cardHTML(r) {
 
   return `<article class="card lay-item" data-room="${r.id}" style="--accent:${heat(r.CurrentSetPoint) || 'var(--line)'}">
     <div class="card-head">
-      <div class="room-ico">${icon(roomIcon(r.Name))}</div>
+      <div class="room-ico">${icon(roomIcon(r))}</div>
       <div class="room-name">${esc(roomName(r))}</div>
       <div class="card-flags">${flags.join('')}</div>
       ${dragHandle('room', r.id, roomName(r))}
@@ -687,7 +734,7 @@ function batteriesView() {
     const rssi = d.ReceptionOfController?.Rssi ?? d.ReceptionOfDevice?.Rssi;
     const statusIcon = status.level === 'good' ? 'check' : status.level === 'unknown' ? 'clock' : status.offline ? 'wifi-off' : 'battery-warning';
     return `<div class="batt-row ${status.level}">
-      <div class="room-ico">${icon(room ? roomIcon(room.Name) : 'heater')}</div>
+      <div class="room-ico">${icon(room ? roomIcon(room) : 'heater')}</div>
       <div class="batt-name"><b>${room ? esc(roomName(room)) : 'Not in a room'}</b><small>${esc(b.kind)}</small></div>
       <div class="batt-gauge" ${pct == null ? '' : `role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Battery about ${pct}%"`}>
         <div class="batt-track"><span style="width:${pct ?? 0}%"></span></div>
@@ -716,7 +763,6 @@ const DIAG_SECTIONS = [
   ['d-boiler', 'flame', 'Boiler'],
   ['d-tidy', 'circle-alert', 'Tidy-up'],
   ['d-valves', 'heater', 'Valves'],
-  ['d-settings', 'settings-2', 'Settings'],
   ['d-info', 'sun', 'Hub info'],
 ];
 
@@ -794,7 +840,7 @@ function diagDeviceLabel(d) {
     return { name: plug?.Name || 'Smart plug', sub: room ? `Smart plug in ${roomName(room)}` : 'Smart plug', ico: 'plug' };
   }
   const b = batteryDevices().find((x) => x.d.id === d.id);
-  return { name: b?.room ? roomName(b.room) : 'Not in a room', sub: b?.kind || d.ProductType, ico: b?.room ? roomIcon(b.room.Name) : 'heater' };
+  return { name: b?.room ? roomName(b.room) : 'Not in a room', sub: b?.kind || d.ProductType, ico: b?.room ? roomIcon(b.room) : 'heater' };
 }
 
 const SIG_LEVEL = { VeryGood: 'good', Good: 'good', Medium: 'warn', Poor: 'critical', Online: 'good' };
@@ -904,7 +950,7 @@ function diagMesh() {
 function diagEnergy() {
   const plugs = state.domain.SmartPlug || [];
   if (!plugs.length) return '';
-  const price = store.get('pricePerKwh', 25);
+  const price = state.settings?.pricePerKwh ?? 25;
   const from = Date.now() - 24 * 3600e3;
   const cards = plugs.map((p) => {
     const room = roomById(p.RoomId);
@@ -1010,7 +1056,7 @@ function diagBoiler() {
     </div>
     <div class="diag-panel">
       <h3>How fast rooms warm up</h3>
-      ${roomStats.some((x) => x.rate) ? `<div class="rate-list">${[...roomStats].filter((x) => x.rate).sort((a, b) => b.rate - a.rate).map((x) => `<div><span>${icon(roomIcon(x.r.Name))}${esc(roomName(x.r))}</span><b>${x.rate.toFixed(1)}° per hour</b></div>`).join('')}</div>
+      ${roomStats.some((x) => x.rate) ? `<div class="rate-list">${[...roomStats].filter((x) => x.rate).sort((a, b) => b.rate - a.rate).map((x) => `<div><span>${icon(roomIcon(x.r))}${esc(roomName(x.r))}</span><b>${x.rate.toFixed(1)}° per hour</b></div>`).join('')}</div>
         <p class="diag-foot">Average rise while the room was calling for heat for at least 20 minutes. Slow rooms may have a small radiator, a draught, or a valve that isn't opening fully.</p>`
         : '<p class="muted">Not enough heating periods recorded yet. This fills in after the heating has run for a while.</p>'}
     </div>`;
@@ -1061,7 +1107,7 @@ function diagValves() {
     const sensors = room ? (room.SmartValveIds || []).length + (room.RoomStatId ? 1 : 0) : 0;
     const diff = ownOk && roomT != null && sensors > 1 ? own - roomT : null;
     return `<tr>
-      <td><span class="cell-name">${icon(room ? roomIcon(room.Name) : 'heater')}<span><b>${room ? esc(roomName(room)) : 'Not in a room'}</b><small>${esc(b.kind)}</small></span></span></td>
+      <td><span class="cell-name">${icon(room ? roomIcon(room) : 'heater')}<span><b>${room ? esc(roomName(room)) : 'Not in a room'}</b><small>${esc(b.kind)}</small></span></span></td>
       <td>${ownOk ? fmtT(own) : '—'}</td>
       <td>${diff == null ? (sensors === 1 && ownOk ? '<span class="muted-cell" data-tip="The room\'s only sensor, so it sets the room temperature">Only sensor</span>' : '—') : `<span class="${Math.abs(diff) >= 15 ? 'warn-text' : ''}">${diff > 0 ? '+' : ''}${(diff / 10).toFixed(1)}°</span>`}</td>
       <td>${valve ? (valve.SetPoint != null ? fmtT(valve.SetPoint) : '—') : stat?.SetPoint != null ? fmtT(stat.SetPoint) : '—'}</td>
@@ -1082,7 +1128,7 @@ function diagValves() {
     </div>`;
 }
 
-function diagSettings() {
+function hubSettings() {
   const s = sys();
   const cap = state.pendingAwayCap ?? s.AwayModeSetPointLimit;
   const preheat = s.PreheatTimeLimit;
@@ -1090,7 +1136,7 @@ function diagSettings() {
   if (preheat && !opts.includes(preheat)) opts.push(preheat);
   opts.sort((a, b) => a - b);
   const winRooms = rooms();
-  return sectionHead('d-settings', 'settings-2', 'Settings', 'These change the hub straight away.') + `
+  return sectionHead('s-heating', 'heater', 'Heating system', 'Settings stored on the hub. These change it straight away.') + `
     <div class="diag-grid two">
       <div class="diag-panel">
         <div class="setting">
@@ -1113,7 +1159,7 @@ function diagSettings() {
       <div class="diag-panel">
         <h3>Open-window detection</h3>
         <p class="diag-foot" style="margin:0 0 10px">Turns a room's heating off for a while when its temperature drops suddenly, as if a window was opened.</p>
-        <div class="win-list">${winRooms.map((r) => `<div><span>${icon(roomIcon(r.Name))}${esc(roomName(r))}</span>
+        <div class="win-list">${winRooms.map((r) => `<div><span>${icon(roomIcon(r))}${esc(roomName(r))}</span>
           <button class="switch" role="switch" aria-checked="${!!r.WindowDetectionActive}" data-act="window-detect" data-room="${r.id}" data-on="${r.WindowDetectionActive ? 0 : 1}" data-k="win-${r.id}" aria-label="Open-window detection in ${esc(roomName(r))}"><span class="track"></span></button></div>`).join('')}</div>
       </div>
     </div>`;
@@ -1152,7 +1198,179 @@ function diagInfo() {
 function diagnosticsView() {
   if (!state.diag) { state.diag = {}; loadDiagnostics(); }
   return `<nav class="diag-nav" aria-label="Diagnostics sections">${DIAG_SECTIONS.map(([id, ico, label]) => `<a class="chip" href="#${id}">${icon(ico)}${label}</a>`).join('')}</nav>
-    ${diagHealth()}${diagMesh()}${diagEnergy()}${diagBoiler()}${diagTidy()}${diagValves()}${diagSettings()}${diagInfo()}`;
+    ${diagHealth()}${diagMesh()}${diagEnergy()}${diagBoiler()}${diagTidy()}${diagValves()}${diagInfo()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Settings page (the cog in the header). The server saves these in config.json.
+
+const SETTINGS_SECTIONS = [
+  ['s-panel', 'house', 'This panel'],
+  ['s-icons', 'sofa', 'Room icons'],
+  ['s-hub', 'wifi', 'Hub connection'],
+  ['s-rec', 'clock', 'Recording'],
+  ['s-heating', 'heater', 'Heating system'],
+];
+const INTERVALS = [[60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min']];
+const KEEPS = [[24, '1 day'], [72, '3 days'], [168, '7 days'], [336, '14 days'], [720, '30 days']];
+
+function choiceSeg(key, opts, cur, label, unit) {
+  if (cur != null && !opts.some(([v]) => v === cur)) opts = [...opts, [cur, `${cur} ${unit}`]].sort((a, b) => a[0] - b[0]);
+  return `<div class="seg" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button data-act="set-choice" data-key="${key}" data-v="${v}" aria-pressed="${v === cur}">${l}</button>`).join('')}</div>`;
+}
+
+function settingsView() {
+  const st = state.settings;
+  if (!st) return `<div class="loading">${icon('settings')}<p>Loading settings…</p></div>`;
+  const d = state.setDraft;
+  const val = (k) => esc(d[k] ?? st[k] ?? '');
+  const theme = store.get('theme', null) || 'system';
+  const t = state.setTest;
+  const result = t?.busy ? '<span class="set-result">Testing…</span>'
+    : t ? `<span class="set-result ${t.ok ? 'ok' : 'bad'}">${icon(t.ok ? 'check' : 'circle-alert')}${esc(t.msg)}</span>` : '';
+  const heating = state.domain
+    ? hubSettings()
+    : sectionHead('s-heating', 'heater', 'Heating system', 'Settings stored on the hub.') + '<div class="diag-panel"><p class="muted">Connect to the hub to change these.</p></div>';
+
+  return `<div class="settings-page">
+    <h2 class="page-title">${icon('settings')}Settings</h2>
+    <nav class="diag-nav" aria-label="Settings sections">${SETTINGS_SECTIONS.map(([id, ico, label]) => `<a class="chip" href="#${id}">${icon(ico)}${label}</a>`).join('')}</nav>
+
+    ${sectionHead('s-panel', 'house', 'This panel', 'Saved on this computer, in config.json.')}
+    <div class="diag-panel">
+      <div class="setting">
+        <div><b>Title</b><p>Shown at the top of the page and in the browser tab.</p></div>
+        <input type="text" class="set-input" data-set="title" data-k="set-title" maxlength="60" value="${val('title')}" aria-label="Title">
+      </div>
+      <div class="setting">
+        <div><b>Appearance</b><p>Light, dark, or the same as your computer. The button next to the cog switches it too. This browser remembers the choice.</p></div>
+        <div class="seg" role="group" aria-label="Appearance">${[['system', 'Follow computer'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button data-act="theme-set" data-v="${k}" aria-pressed="${theme === k}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="setting">
+        <div><b>Electricity price</b><p>Used for the smart plug cost estimates in Diagnostics.</p></div>
+        <label class="price set-price"><input type="number" min="1" max="999" step="0.5" data-set="pricePerKwh" data-k="set-price" value="${val('pricePerKwh')}" aria-label="Electricity price in pence per kWh"> p per kWh</label>
+      </div>
+      <p class="diag-foot">The panel is running at port ${esc(st.port)}. To change the port, edit <code>port</code> in config.json and restart the server.</p>
+    </div>
+
+    ${sectionHead('s-icons', 'sofa', 'Room icons', "The hub doesn't store a picture for each room, so the panel guesses one from the room's name. Click a room to choose its icon yourself.")}
+    <div class="diag-panel">${roomIconsPanel()}</div>
+
+    ${sectionHead('s-hub', 'wifi', 'Hub connection', "How this panel reaches your Wiser hub. The secret is saved in config.json on this computer, and isn't shown again once saved.")}
+    <div class="diag-panel">
+      <div class="setting">
+        <div><b>Hub address</b><p>The hub's IP address on your home network, for example 192.168.1.50. Your router's list of connected devices shows it, usually named WiserHeat followed by letters and numbers.</p></div>
+        <input type="text" class="set-input" data-set="hubIp" data-k="set-hub" value="${val('hubIp')}" placeholder="192.168.1.50" spellcheck="false" autocomplete="off" aria-label="Hub address">
+      </div>
+      <div class="setting stacked">
+        <div><b>Hub secret</b><p>A long code that lets the panel control the hub. To find it, press the setup button on the hub once so its light flashes, and join the WiserHeat Wi-Fi network it creates. Then open <code>http://192.168.8.1/secret</code> and copy the text. Press the setup button again to finish.${st.hasSecret ? ' A secret is already saved. Leave this empty to keep it.' : ''}</p></div>
+        <textarea class="set-input set-secret" rows="2" data-set="secret" data-k="set-secret" placeholder="${st.hasSecret ? 'Saved. Paste a new secret here to replace it' : 'Paste the secret here'}" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Hub secret">${esc(d.secret ?? '')}</textarea>
+      </div>
+      <div class="set-actions">
+        ${result}
+        <button class="btn" data-act="set-test" ${t?.busy ? 'disabled' : ''}>${icon('refresh-cw')}Test connection</button>
+        <button class="btn primary" data-act="set-save-hub" ${t?.busy ? 'disabled' : ''}>${icon('save')}Save connection</button>
+      </div>
+    </div>
+
+    ${sectionHead('s-rec', 'clock', 'Recording', "The hub doesn't keep any history, so this panel records temperatures while it's running. The graphs and boiler statistics come from these recordings.")}
+    <div class="diag-panel">
+      <div class="setting">
+        <div><b>Record every</b><p>Recording more often gives smoother graphs, but a bigger history file.</p></div>
+        ${choiceSeg('historyIntervalSeconds', INTERVALS, st.historyIntervalSeconds, 'Record every', 's')}
+      </div>
+      <div class="setting">
+        <div><b>Keep recordings for</b><p>Older readings are deleted. The graphs show up to the last 7 days.</p></div>
+        ${choiceSeg('historyKeepHours', KEEPS, st.historyKeepHours, 'Keep recordings for', 'h')}
+      </div>
+    </div>
+
+    ${heating}
+  </div>`;
+}
+
+function roomIconsPanel() {
+  if (!state.domain) return '<p class="muted">Connect to the hub to see your rooms.</p>';
+  const chosen = state.settings.roomIcons || {};
+  const { loose, groups } = roomGroups();
+  return `<div class="icon-rooms">${[...loose, ...groups.flatMap((g) => g.list)].map((r) => `<button class="icon-room" data-act="pick-icon" data-room="${r.id}" data-k="icon-${r.id}">
+      <span class="room-ico">${icon(roomIcon(r))}</span>
+      <span><b>${esc(roomName(r))}</b><small>${chosen[r.id] ? 'Chosen by you' : 'Automatic, from the name'}</small></span>
+    </button>`).join('')}</div>`;
+}
+
+function openIconPicker(roomId) {
+  const r = roomById(roomId);
+  const cur = state.settings?.roomIcons?.[r.id] || '';
+  const choice = (name, label, ico = name) => `<button class="icon-choice" data-md="icon" data-v="${name}" aria-pressed="${cur === name}">${icon(ico)}<span>${label}</span></button>`;
+  openModal(`<div class="modal-body">
+      <h2>Icon for ${esc(roomName(r))}</h2>
+      <p>Shown on the Schedules and Rooms tabs, and in Batteries and Diagnostics.</p>
+      <div class="icon-grid">${choice('', 'Automatic', guessRoomIcon(r.Name))}${ROOM_ICONS.map(([n, l]) => choice(n, l)).join('')}</div>
+    </div>
+    <div class="modal-foot"><button class="btn ghost" data-md="cancel">Cancel</button></div>`, (act, el) => {
+    if (act !== 'icon') return;
+    closeModal();
+    saveSettings({ roomIcons: { [r.id]: el.dataset.v || null } }, `Icon updated for ${roomName(r)}`);
+  });
+}
+
+async function saveSettings(partial, okMsg) {
+  try {
+    state.settings = await api('PUT', '/api/settings', partial);
+    for (const k of Object.keys(partial)) delete state.setDraft[k];
+    applyTitle();
+    if (okMsg) toast(okMsg);
+  } catch (e) {
+    toast(e.message, true);
+  }
+  renderHeader();
+  renderBanner();
+  renderMain();
+}
+
+// The address and secret as typed. A blank secret means "keep the saved one".
+function hubDraft() {
+  const body = { hubIp: String(state.setDraft.hubIp ?? state.settings.hubIp ?? '').trim() };
+  const secret = String(state.setDraft.secret ?? '').replace(/\s+/g, '');
+  if (secret) body.secret = secret;
+  return body;
+}
+
+async function testHubConnection() {
+  state.setTest = { busy: true };
+  renderMain();
+  try {
+    const r = await api('POST', '/api/settings/test', hubDraft());
+    state.setTest = { ok: true, msg: `Connected. The hub has ${r.rooms} ${r.rooms === 1 ? 'room' : 'rooms'}${r.firmware ? `, firmware ${r.firmware}` : ''}.` };
+  } catch (e) {
+    state.setTest = { ok: false, msg: e.message };
+  }
+  renderMain();
+  return state.setTest.ok;
+}
+
+async function saveHubConnection() {
+  const body = hubDraft();
+  if (!body.hubIp) return toast('Enter the hub address', true);
+  if (!body.secret && !state.settings.hasSecret) return toast('Paste the hub secret', true);
+  const firstTime = !hubConfigured();
+  if (!(await testHubConnection()) && !confirm(`${state.setTest.msg}\n\nSave these details anyway?`)) return;
+  await saveSettings(body, 'Hub connection saved');
+  state.loading = !state.domain;
+  await refresh();
+  if (firstTime && state.domain) { state.view = 'schedules'; store.set('view', state.view); renderAll(); }
+}
+
+function setTheme(v) {
+  if (v === 'light' || v === 'dark') {
+    document.documentElement.dataset.theme = v;
+    store.set('theme', v);
+  } else {
+    delete document.documentElement.dataset.theme;
+    try { localStorage.removeItem('wiser.theme'); } catch { /* ignore */ }
+  }
+  updateThemeBtn();
 }
 
 // ---------------------------------------------------------------------------
@@ -1288,7 +1506,7 @@ function openBoostPicker() {
       <div class="room-pick">${list.map((r) => {
         const t = roomTemp(r);
         const ov = overrideInfo(r);
-        return `<label class="pick"><input type="checkbox" value="${r.id}" ${picked.has(r.id) ? 'checked' : ''}>${icon(roomIcon(r.Name))}
+        return `<label class="pick"><input type="checkbox" value="${r.id}" ${picked.has(r.id) ? 'checked' : ''}>${icon(roomIcon(r))}
           <span><b>${esc(roomName(r))}</b><small>${t == null ? 'No reading' : fmtT(t)} now, boost to ${fmtT(boostTarget(r, boostPrefs.amount))}${ov?.boost ? `. Already boosted until ${ov.until}` : ''}</small></span></label>`;
       }).join('')}</div>
     </div>
@@ -1418,7 +1636,7 @@ function renderEditor() {
 
   setDialogHTML(dlg, `
     <div class="sheet-head">
-      <div class="room-ico">${icon(r ? roomIcon(r.Name) : 'calendar-days')}</div>
+      <div class="room-ico">${icon(r ? roomIcon(r) : 'calendar-days')}</div>
       <div class="grow"><h2 id="editorTitle">${esc(title)}</h2><p>${editor.day}. ${sharedNote}.</p></div>
       <button class="icon-btn" data-ed="close" aria-label="Close without applying">${icon('x')}</button>
     </div>
@@ -1456,7 +1674,7 @@ function renderEditor() {
         <div class="field-label">Apply to these rooms${sharing.length > 1 ? '<span class="hint">Rooms sharing this schedule always change together</span>' : ''}</div>
         <div class="chips">${schedRooms.map((x) => {
           const same = x.ScheduleId === editor.schedId;
-          return `<button class="chip" data-ed="aroom" data-room="${x.id}" aria-pressed="${same || editor.applyRooms.has(x.id)}" ${same ? 'disabled' : ''} data-k="ar-${x.id}">${icon(roomIcon(x.Name))}${esc(roomName(x))}</button>`;
+          return `<button class="chip" data-ed="aroom" data-room="${x.id}" aria-pressed="${same || editor.applyRooms.has(x.id)}" ${same ? 'disabled' : ''} data-k="ar-${x.id}">${icon(roomIcon(x))}${esc(roomName(x))}</button>`;
         }).join('')}</div>
         <div class="chip-links">
           <button data-ed="rooms-preset" data-v="all">Every room</button>
@@ -1661,7 +1879,7 @@ function libraryView() {
         <div class="grow">
           <h3>${esc(s.Name)}</h3>
           <div class="lib-rooms">${used.length
-            ? used.map((r) => `<span class="lib-room">${icon(roomIcon(r.Name))}${esc(roomName(r))}</span>`).join('')
+            ? used.map((r) => `<span class="lib-room">${icon(roomIcon(r))}${esc(roomName(r))}</span>`).join('')
             : '<span class="muted">Not used by any room</span>'}</div>
         </div>
         <div class="lib-actions">
@@ -1708,7 +1926,7 @@ function roomPicker(selected, { schedId } = {}) {
     const cur = schedFor(r);
     const note = !cur ? 'No schedule' : cur.id === schedId ? 'Uses this schedule' : `Uses “${esc(cur.Name)}”`;
     return `<label class="pick"><input type="checkbox" value="${r.id}" ${selected.includes(r.id) ? 'checked' : ''}>
-      ${icon(roomIcon(r.Name))}<span><b>${esc(roomName(r))}</b><small>${note}</small></span></label>`;
+      ${icon(roomIcon(r))}<span><b>${esc(roomName(r))}</b><small>${note}</small></span></label>`;
   }).join('')}</div>`;
 }
 const pickedRooms = () => $$('#modal .room-pick input:checked').map((i) => Number(i.value));
@@ -1866,6 +2084,236 @@ function openDelete(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Room order and groups (Upstairs, Downstairs…), shared by the schedule timeline and the Rooms tab.
+// The server keeps them in data/layout.json. Rooms it doesn't know yet go after the ungrouped rooms.
+
+let layoutPending = 0;
+let layoutSaving = Promise.resolve();
+
+// { loose: rooms not in a group, groups: [{ id, name, list: rooms }] }, in display order.
+function roomGroups() {
+  const seen = new Set();
+  const take = (ids) => (ids || []).map(roomById).filter((r) => {
+    if (!r || seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
+  const groups = (state.layout.groups || []).map((g) => ({ id: g.id, name: g.name, list: take(g.rooms) }));
+  const loose = take(state.layout.rooms);
+  return { loose: [...loose, ...rooms().filter((r) => !seen.has(r.id))], groups };
+}
+const layoutOf = ({ loose, groups }) => ({ rooms: loose.map((r) => r.id), groups: groups.map((g) => ({ id: g.id, name: g.name, rooms: g.list.map((r) => r.id) })) });
+
+function saveLayout(next) {
+  state.layout = next;
+  renderMain();
+  layoutPending++;
+  layoutSaving = layoutSaving
+    .then(() => api('PUT', '/api/layout', next))
+    .catch((e) => toast(`Couldn't save the room order: ${e.message}`, true))
+    .finally(() => { layoutPending--; });
+}
+
+const dragHandle = (kind, id, name) => `<button type="button" class="drag-handle" data-drag="${kind}" data-id="${esc(id)}" data-k="drag-${kind}-${esc(id)}" data-tip="Drag to move" aria-label="Move ${esc(name)}${kind === 'group' ? ' group' : ''}. Drag it, or use the arrow keys.">${icon('grip-vertical')}</button>`;
+
+// Ungrouped rooms first, then each group under its own heading. `item` renders one room.
+function layoutSections(item, { select = false, bodyClass = '' } = {}) {
+  const { loose, groups } = roomGroups();
+  const body = (list, hint) => `<div class="lay-body ${bodyClass}">${list.map(item).join('') || (hint ? '<div class="lay-hint">Drag rooms here by their handles</div>' : '')}</div>`;
+  const head = (g) => {
+    const sched = g.list.filter(schedFor);
+    const all = sched.length && sched.every((r) => state.selected.has(r.id));
+    return `<div class="lay-head">
+      ${select ? `<input type="checkbox" class="room-check" data-act="select-group" data-group="${esc(g.id)}" data-k="selg-${esc(g.id)}" ${all ? 'checked' : ''} ${sched.length ? '' : 'disabled'} aria-label="Select every room in ${esc(g.name)}">` : ''}
+      <button class="group-name" data-act="group-rename" data-group="${esc(g.id)}" data-tip="Rename this group">${esc(g.name)}</button>
+      <span class="group-count">${g.list.length} ${g.list.length === 1 ? 'room' : 'rooms'}</span>
+      <button class="icon-btn group-del" data-act="group-delete" data-group="${esc(g.id)}" data-tip="Delete this group. Its rooms stay." aria-label="Delete the ${esc(g.name)} group">${icon('trash')}</button>
+      ${dragHandle('group', g.id, g.name)}
+    </div>`;
+  };
+  return `<section class="lay-section" data-group="">${body(loose, false)}</section>`
+    + groups.map((g) => `<section class="lay-section" data-group="${esc(g.id)}">${head(g)}${body(g.list, true)}</section>`).join('');
+}
+
+function openGroupName(id = null) {
+  const g = state.layout.groups.find((x) => x.id === id);
+  openModal(`<div class="modal-body">
+      <h2>${g ? 'Rename group' : 'New group'}</h2>
+      ${g ? '' : '<p>Groups sort your rooms, for example Upstairs and Downstairs. Drag a room by the handle on its right to move it into a group. They show on the Schedules and Rooms tabs, and don\'t change anything on the hub.</p>'}
+      <label class="field">Name<input type="text" id="mName" maxlength="40" value="${g ? esc(g.name) : ''}" placeholder="For example, Upstairs"></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-md="cancel">Cancel</button>
+      <button class="btn primary" data-md="save">${icon(g ? 'check' : 'plus')}${g ? 'Rename' : 'Create group'}</button>
+    </div>`, (act) => {
+    if (act !== 'save') return;
+    const name = $('#mName').value.trim().slice(0, 40);
+    if (!name) { toast('Give the group a name', true); $('#mName').focus(); return; }
+    const next = layoutOf(roomGroups());
+    if (g) next.groups.find((x) => x.id === g.id).name = name;
+    else next.groups.push({ id: 'g' + Date.now().toString(36), name, rooms: [] });
+    closeModal();
+    saveLayout(next);
+    if (!g) toast(`Created “${name}”. Drag rooms into it by their handles.`);
+  });
+}
+
+function deleteGroup(id) {
+  const secs = roomGroups();
+  const g = secs.groups.find((x) => x.id === id);
+  if (!g) return;
+  if (g.list.length && !confirm(`Delete the “${g.name}” group? Its ${g.list.length === 1 ? 'room stays' : 'rooms stay'}, and ${g.list.length === 1 ? 'moves' : 'move'} up with the ungrouped rooms.`)) return;
+  secs.loose.push(...g.list);
+  secs.groups = secs.groups.filter((x) => x !== g);
+  saveLayout(layoutOf(secs));
+}
+
+// Arrow keys on a handle: a room steps one place, crossing into the next group at either end.
+function moveByKey(kind, id, dir) {
+  const secs = roomGroups();
+  if (kind === 'group') {
+    const i = secs.groups.findIndex((g) => g.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= secs.groups.length) return;
+    [secs.groups[i], secs.groups[j]] = [secs.groups[j], secs.groups[i]];
+  } else {
+    const lists = [secs.loose, ...secs.groups.map((g) => g.list)];
+    const li = lists.findIndex((l) => l.some((r) => r.id === id));
+    if (li < 0) return;
+    const list = lists[li], i = list.findIndex((r) => r.id === id);
+    if (dir < 0 ? i > 0 : i < list.length - 1) list.splice(i + dir, 0, ...list.splice(i, 1));
+    else if (lists[li + dir]) {
+      const [r] = list.splice(i, 1);
+      if (dir < 0) lists[li - 1].push(r); else lists[li + 1].unshift(r);
+    } else return;
+  }
+  saveLayout(layoutOf(secs));
+}
+
+// Dragging. The row or card lifts out and follows the pointer, and a placeholder shows where it will land.
+// Dragging a group folds every group down to its heading until it's dropped.
+let rowDrag = null;
+
+function onDragStart(e) {
+  const h = e.target.closest?.('.drag-handle');
+  if (!h || e.button !== 0 || !h.closest('#main')) return;
+  e.preventDefault();
+  hideTip();
+  const root = h.closest('.lay-root');
+  const group = h.dataset.drag === 'group';
+  const el = h.closest(group ? '.lay-section' : '.lay-item');
+  const start = el.getBoundingClientRect();
+  const dx = e.clientX - start.left, dy = e.clientY - start.top;
+  if (group) {
+    // Fold to headings, then scroll so the held group stays under the pointer.
+    root.classList.add('groups-only');
+    scrollBy(0, el.getBoundingClientRect().top - start.top);
+  }
+  const rect = el.getBoundingClientRect();
+  const ph = document.createElement('div');
+  ph.className = 'lay-placeholder';
+  ph.style.height = `${rect.height}px`;
+  el.before(ph);
+  const css = el.style.cssText;
+  Object.assign(el.style, { position: 'fixed', left: `${rect.left}px`, top: `${e.clientY - dy}px`, width: `${rect.width}px`, height: `${rect.height}px`, margin: '0' });
+  el.classList.add('lifted');
+  document.body.classList.add('row-dragging');
+  h.setPointerCapture(e.pointerId);
+  rowDrag = { group, el, ph, root, css, dx, dy, x: e.clientX, y: e.clientY, free: !group && el.classList.contains('card') };
+  rowDrag.raf = requestAnimationFrame(dragScroll);
+}
+
+function dragPlace() {
+  const d = rowDrag;
+  d.el.style.top = `${d.y - d.dy}px`;
+  if (d.free) d.el.style.left = `${d.x - d.dx}px`;
+
+  if (d.group) {
+    const secs = $$(':scope > .lay-section:not([data-group=""])', d.root).filter((s) => s !== d.el);
+    const next = secs.find((s) => { const r = s.getBoundingClientRect(); return d.y < r.top + r.height / 2; });
+    if (next) { if (d.ph.nextElementSibling !== next) next.before(d.ph); }
+    else if (d.root.lastElementChild !== d.ph) d.root.append(d.ph);
+    return;
+  }
+
+  const box = d.root.getBoundingClientRect();
+  const x = clamp(d.x, box.left + 2, box.right - 2);
+  const hit = document.elementFromPoint(x, d.y)?.closest('.lay-item, .lay-head, .lay-body, .lay-placeholder');
+  if (!hit || hit === d.ph || !d.root.contains(hit)) return;
+  const before = (el) => { if (el.previousElementSibling !== d.ph) el.before(d.ph); };
+  const after = (el) => { if (el.nextElementSibling !== d.ph) el.after(d.ph); };
+  const side = (el) => {
+    const r = el.getBoundingClientRect();
+    return d.free ? x > r.left + r.width / 2 : d.y > r.top + r.height / 2;
+  };
+
+  if (hit.classList.contains('lay-head')) {
+    // Top half of a group heading: end of the section above. Bottom half: start of this group.
+    const r = hit.getBoundingClientRect();
+    const sec = hit.parentNode;
+    if (d.y < r.top + r.height / 2) {
+      const body = $(':scope > .lay-body', sec.previousElementSibling);
+      if (body.lastElementChild !== d.ph) body.append(d.ph);
+    } else {
+      const body = $(':scope > .lay-body', sec);
+      if (body.firstElementChild !== d.ph) body.prepend(d.ph);
+    }
+  } else if (hit.classList.contains('lay-item')) {
+    if (side(hit)) after(hit); else before(hit);
+  } else {
+    // The gap between cards, or an empty group: go by the nearest room.
+    const items = $$(':scope > .lay-item', hit).filter((c) => c !== d.el);
+    if (!items.length) { if (d.ph.parentNode !== hit) hit.append(d.ph); return; }
+    const dist = (c) => {
+      const r = c.getBoundingClientRect();
+      return Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - d.y, 0, d.y - r.bottom));
+    };
+    const near = items.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+    if (side(near)) after(near); else before(near);
+  }
+}
+
+function dragScroll() {
+  const d = rowDrag;
+  if (!d) return;
+  const edge = 70;
+  const v = d.y < edge ? d.y - edge : d.y > innerHeight - edge ? d.y - (innerHeight - edge) : 0;
+  if (v) { scrollBy(0, v / 3); dragPlace(); }
+  d.raf = requestAnimationFrame(dragScroll);
+}
+
+function onDragMove(e) {
+  if (!rowDrag) return;
+  rowDrag.x = e.clientX;
+  rowDrag.y = e.clientY;
+  dragPlace();
+}
+
+function onDragEnd() {
+  const d = rowDrag;
+  if (!d) return;
+  cancelAnimationFrame(d.raf);
+  d.ph.replaceWith(d.el);
+  d.el.style.cssText = d.css;
+  d.el.classList.remove('lifted');
+  d.root.classList.remove('groups-only');
+  document.body.classList.remove('row-dragging');
+  rowDrag = null;
+  const next = layoutFromDom(d.root);
+  if (JSON.stringify(next) !== JSON.stringify(layoutOf(roomGroups()))) saveLayout(next);
+  else renderMain();
+}
+
+function layoutFromDom(root) {
+  const ids = (sec) => $$(':scope > .lay-body > .lay-item', sec).map((x) => Number(x.dataset.room));
+  const secs = $$(':scope > .lay-section', root);
+  const names = new Map(state.layout.groups.map((g) => [g.id, g.name]));
+  return {
+    rooms: ids(secs.find((s) => !s.dataset.group)),
+    groups: secs.filter((s) => s.dataset.group).map((s) => ({ id: s.dataset.group, name: names.get(s.dataset.group), rooms: ids(s) })),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Saving and backups
 
 async function saveDrafts() {
@@ -1979,6 +2427,7 @@ document.addEventListener('click', (e) => {
     state.view = tab.dataset.view;
     store.set('view', state.view);
     renderHeader();
+    renderBanner();
     renderMain();
     if (state.view === 'rooms' || state.view === 'diagnostics') loadHistory();
     if (state.view === 'diagnostics') loadDiagnostics();
@@ -1986,10 +2435,9 @@ document.addEventListener('click', (e) => {
   }
   if (e.target.closest('#refreshBtn')) return refresh();
   if (e.target.closest('#themeBtn')) {
-    const next = isDark() ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    store.set('theme', next);
-    return updateThemeBtn();
+    setTheme(isDark() ? 'light' : 'dark');
+    if (state.view === 'settings') renderMain();
+    return;
   }
 
   const b = e.target.closest('[data-act]');
@@ -1997,6 +2445,12 @@ document.addEventListener('click', (e) => {
   const r = b.dataset.room && b.dataset.room !== 'all' ? roomById(b.dataset.room) : null;
   switch (b.dataset.act) {
     case 'refresh': return refresh();
+    case 'open-settings': state.view = 'settings'; store.set('view', state.view); renderAll(); return scrollTo(0, 0);
+    case 'theme-set': setTheme(b.dataset.v); return renderMain();
+    case 'set-choice': return saveSettings({ [b.dataset.key]: Number(b.dataset.v) }, 'Saved');
+    case 'set-test': return testHubConnection();
+    case 'pick-icon': return openIconPicker(Number(b.dataset.room));
+    case 'set-save-hub': return saveHubConnection();
     case 'mode': state.mode = b.dataset.v; store.set('mode', state.mode); return renderMain();
     case 'sched-view': state.schedView = b.dataset.v; store.set('schedView', state.schedView); return renderMain();
     case 'lib-new': return openNewSchedule();
@@ -2015,6 +2469,14 @@ document.addEventListener('click', (e) => {
       state.selected = b.checked ? new Set(ids) : new Set();
       return renderMain();
     }
+    case 'select-group': {
+      const g = roomGroups().groups.find((x) => x.id === b.dataset.group);
+      for (const x of (g?.list || []).filter(schedFor)) b.checked ? state.selected.add(x.id) : state.selected.delete(x.id);
+      return renderMain();
+    }
+    case 'group-new': return openGroupName();
+    case 'group-rename': return openGroupName(b.dataset.group);
+    case 'group-delete': return deleteGroup(b.dataset.group);
     case 'clear-sel': state.selected.clear(); return renderMain();
     case 'edit': {
       const preset = state.selected.has(r.id) && state.selected.size > 1 ? selectedSchedRooms().map((x) => x.id) : null;
@@ -2072,11 +2534,20 @@ document.addEventListener('click', (e) => {
   }
 });
 
+// Settings fields: keep what's typed across re-renders, and save the simple ones when they change.
+document.addEventListener('input', (e) => {
+  const k = e.target.dataset?.set;
+  if (!k) return;
+  state.setDraft[k] = e.target.value;
+  if (k === 'hubIp' || k === 'secret') state.setTest = null;
+});
+
 document.addEventListener('change', (e) => {
   const el = e.target;
-  if (el.dataset.act === 'price') {
+  if (el.dataset.set === 'title') return saveSettings({ title: el.value }, 'Title saved');
+  if (el.dataset.set === 'pricePerKwh' || el.dataset.act === 'price') {
     const v = Number(el.value);
-    if (v > 0) { store.set('pricePerKwh', v); renderMain(); }
+    if (v > 0) saveSettings({ pricePerKwh: v }, `Unit price set to ${v}p per kWh`);
     return;
   }
   if (el.dataset.act === 'copy-week' && el.value) {
@@ -2092,10 +2563,21 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !$('#popover').hidden) closePopover();
+  if (e.key === 'Enter' && (e.target.dataset?.set === 'hubIp' || e.target.dataset?.set === 'secret')) { e.preventDefault(); saveHubConnection(); return; }
+  const h = e.target.closest?.('#main .drag-handle');
+  if (h && /^Arrow(Up|Down|Left|Right)$/.test(e.key)) {
+    e.preventDefault();
+    moveByKey(h.dataset.drag, h.dataset.drag === 'group' ? h.dataset.id : Number(h.dataset.id), /Up|Left/.test(e.key) ? -1 : 1);
+  }
 });
 
+document.addEventListener('pointerdown', onDragStart);
+document.addEventListener('pointermove', onDragMove);
+document.addEventListener('pointerup', onDragEnd);
+document.addEventListener('pointercancel', onDragEnd);
+
 document.addEventListener('mouseover', (e) => {
-  if (e.target.closest('.spark')) return;
+  if (rowDrag || e.target.closest('.spark')) return;
   const el = e.target.closest('[data-tip]');
   if (el) showTip(el.dataset.tip, e);
 });
@@ -2154,6 +2636,8 @@ updateThemeBtn();
     $('#sprite').innerHTML = await (await fetch('icons.svg')).text();
   } catch { /* icons are decorative */ }
   renderAll();
+  await loadSettings();
+  if (state.settings && !hubConfigured()) { state.view = 'settings'; renderAll(); }
   await refresh();
   loadHistory();
   setInterval(() => {

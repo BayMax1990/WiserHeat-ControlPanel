@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bundy Heating System</title>
+  <title>%TITLE%</title>
   <script>
     // Apply a saved light/dark choice before first paint, so the page doesn't flash.
     try { const t = JSON.parse(localStorage.getItem('wiser.theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -21,7 +21,7 @@
     <div class="brand">
       <svg class="brand-flame" id="brandFlame" aria-hidden="true"><use href="#flame"/></svg>
       <div>
-        <h1>Bundy Heating System</h1>
+        <h1 id="appTitle">%TITLE%</h1>
         <p class="brand-sub" id="systemLine">Connecting to the hub…</p>
       </div>
     </div>
@@ -36,6 +36,7 @@
         <button class="btn warm" id="boostBtn" data-act="boost-pick" disabled aria-label="Boost rooms"><svg aria-hidden="true"><use href="#flame"/></svg><span class="label">Boost rooms</span></button>
       </div>
       <div class="clock" id="hubClock" title="Time on the hub"></div>
+      <button class="icon-btn" id="settingsBtn" data-act="open-settings" title="Settings" aria-label="Settings"><svg><use href="#settings"/></svg></button>
       <button class="icon-btn" id="themeBtn" title="Switch to dark mode" aria-label="Switch to dark mode"><svg><use href="#moon"/></svg></button>
       <button class="icon-btn" id="refreshBtn" title="Refresh from the hub" aria-label="Refresh from the hub"><svg><use href="#refresh-cw"/></svg></button>
     </div>

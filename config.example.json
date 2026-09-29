@@ -1,7 +1,10 @@
 {
+  "title": "Wiser Heating",
   "hubIp": "192.168.1.50",
   "secret": "paste-your-hub-secret-here",
   "port": 8765,
   "historyIntervalSeconds": 120,
-  "historyKeepHours": 168
+  "historyKeepHours": 168,
+  "pricePerKwh": 25,
+  "roomIcons": {}
 }
