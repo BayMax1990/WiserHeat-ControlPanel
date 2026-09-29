@@ -1,8 +1,8 @@
-# WiserHeat Control Panel, for Docker. How to use it: docs/DOCKER.md
+# WiserHeat Control Panel, for Docker and the Home Assistant app. How to use it: docs/DOCKER.md
 #
-# Listens on port 8765 on every address, keeps settings and data in /data, and runs as the
-# unprivileged "node" user (uid 1000). The first visitor is asked to create a password, unless
-# PANEL_PASSWORD is set.
+# Listens on port 8765 on every address (8099 in Home Assistant), keeps settings and data in
+# /data, and runs as the unprivileged "node" user (uid 1000) except in Home Assistant; see
+# wiserheat-start.sh. The first visitor is asked to create a password, unless PANEL_PASSWORD is set.
 FROM node:22-alpine
 
 LABEL org.opencontainers.image.title="WiserHeat Control Panel" \
@@ -13,16 +13,21 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     DATA_DIR=/data
 
+RUN apk add --no-cache su-exec \
+ && mkdir -p /data \
+ && chown node:node /data
+
 WORKDIR /app
 COPY server.js ./
 COPY public ./public
+COPY wiserheat-start.sh /usr/local/bin/wiserheat-start
+# Strip Windows line endings, in case the script was checked out on Windows.
+RUN sed -i 's/\r$//' /usr/local/bin/wiserheat-start && chmod +x /usr/local/bin/wiserheat-start
 
-RUN mkdir -p /data && chown node:node /data
-USER node
 VOLUME /data
 EXPOSE 8765
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 8765) + '/').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD node -e "const p = process.env.PORT || (require('fs').existsSync('/data/options.json') ? 8099 : 8765); fetch('http://127.0.0.1:' + p + '/').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 
-CMD [ "node", "server.js" ]
+ENTRYPOINT [ "/usr/local/bin/wiserheat-start" ]

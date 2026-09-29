@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0
+
+- Installs and updates are much quicker. Home Assistant now downloads a ready-made app instead of building it on your device.
+- From now on, the app's version matches the panel's releases on GitHub.
+
 ## 0.1.2
 
 - Stops straight away when the app is stopped or updated, instead of waiting to be shut down.

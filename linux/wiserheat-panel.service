@@ -1,0 +1,62 @@
+# WiserHeat Control Panel as a systemd service. linux/install.sh puts this in
+# /etc/systemd/system/, filling in the path to Node.js. See docs/LINUX.md.
+
+[Unit]
+Description=WiserHeat Control Panel
+Documentation=https://github.com/BayMax1990/WiserHeat-ControlPanel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=wiserheat
+Group=wiserheat
+WorkingDirectory=/opt/wiserheat-panel
+# Open to other devices on the network. The first visitor creates a password, unless
+# PANEL_PASSWORD is set in /etc/wiserheat-panel.env.
+Environment=HOST=0.0.0.0
+Environment=DATA_DIR=/var/lib/wiserheat-panel
+# PORT, PANEL_PASSWORD and the others can be set here, and override the lines above.
+EnvironmentFile=-/etc/wiserheat-panel.env
+ExecStart=@NODE@ /opt/wiserheat-panel/server.js
+Restart=on-failure
+RestartSec=5
+
+# Settings, history and backups live in /var/lib/wiserheat-panel, which systemd creates for the
+# service user.
+StateDirectory=wiserheat-panel
+StateDirectoryMode=0750
+
+# The panel only needs its own folders and the network, so lock the rest away.
+# (Not MemoryDenyWriteExecute: Node.js needs to compile code as it runs.)
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateUsers=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+RemoveIPC=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# Refuse anything else politely rather than killing the panel: Node.js tries a few newer calls
+# (such as io_uring) and falls back when they're refused.
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

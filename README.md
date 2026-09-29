@@ -13,6 +13,7 @@ A free control panel for Drayton Wiser heating systems. It talks straight to you
 - **On Windows**, or any Mac or Linux computer. Double-click `start.bat`, and open it in your browser. [Get started](#get-started).
 - **As a Home Assistant app.** Install it in a few clicks and open it from the Home Assistant sidebar, signed in with your Home Assistant account. [Install on Home Assistant](#install-on-home-assistant).
 - **With Docker**, on a home server, NAS or Raspberry Pi, always on for the whole house. [Run with Docker](#run-with-docker).
+- **As a Linux service**, on a Raspberry Pi or Linux server without Docker. One command installs it, and it starts by itself at boot. [Install on Linux](#install-on-linux).
 - **From your phone or tablet**, on your home network, protected by a password.
 
 A short setup screen walks you through connecting to your hub the first time.
@@ -149,7 +150,7 @@ Click the button above, or add the repository by hand:
 
 1. In Home Assistant, go to **Settings → Apps**, and click **App store** in the bottom-right corner.
 2. Open the **⋮** menu in the top right, choose **Repositories**, and add `https://github.com/BayMax1990/WiserHeat-ControlPanel`.
-3. Find **WiserHeat Control Panel** in the store, then click **Install**. Home Assistant builds it on your device, which can take a few minutes the first time.
+3. Find **WiserHeat Control Panel** in the store, then click **Install**.
 4. Click **Start**, and turn on **Show in sidebar**.
 5. Open **WiserHeat** from the sidebar and follow the setup screen.
 
@@ -174,6 +175,20 @@ There's a ready-made [`docker-compose.yml`](docker-compose.yml) too. The [Docker
 - updating;
 - Synology, Unraid, Portainer and Raspberry Pi;
 - troubleshooting.
+
+## Install on Linux
+
+For a Raspberry Pi or Linux server, without Docker. Run this one command on the machine:
+
+```
+curl -fsSL https://raw.githubusercontent.com/BayMax1990/WiserHeat-ControlPanel/main/linux/install.sh | sudo bash
+```
+
+It installs Node.js if needed, and sets the panel up as a locked-down service that starts at boot. When it's done, it prints the address to open. Run it again at any time to update. The [Linux guide](docs/LINUX.md) covers:
+- options, such as the port and presetting the password;
+- where your data is kept, and everyday commands;
+- troubleshooting;
+- uninstalling.
 
 ## Use it from your phone or other devices
 
@@ -241,17 +256,21 @@ The panel's own sign-in uses `GET /api/session`, `POST /api/login`, `POST /api/l
 
 ## Working on the code
 
-The panel is `server.js` and the `public/` folder. The Home Assistant app lives in `wiserheat-panel/`, and Home Assistant builds it from that folder alone, so it keeps its own copy of the panel in `wiserheat-panel/app/`. After changing the panel, refresh that copy before committing:
+The panel is `server.js` and the `public/` folder. One Docker image, built from the `Dockerfile` at the top of the repository, serves both Docker users and the Home Assistant app. `wiserheat-panel/` only describes the Home Assistant app: its settings, docs, changelog and icons.
 
-```
-node tools/sync-ha-app.js
-```
+**Releasing a new version:**
 
-For a new release, raise `version` in `wiserheat-panel/config.yaml` and add a line to `wiserheat-panel/CHANGELOG.md`, so Home Assistant users are offered the update. The script warns if you forget.
+1. Add a section to `wiserheat-panel/CHANGELOG.md` for the new version, so Home Assistant users see what's changed. Commit and push.
+2. On GitHub, create a release with a tag like `v1.1.0`. Use all three numbers.
+3. The *Docker image* workflow in `.github/workflows/` then:
+   - builds the image for amd64 and arm64, and publishes `1.1.0`, `1.1` and `latest` to `ghcr.io/baymax1990/wiserheat-panel`;
+   - checks anyone can download it, then sets the Home Assistant app's version to `1.1.0` and commits that.
 
-**Publishing the Docker image.** On GitHub, create a release with a tag like `v1.0.0`. The *Docker image* workflow in `.github/workflows/` then builds it for amd64 and arm64, and publishes `1.0.0`, `1.0` and `latest` to `ghcr.io/baymax1990/wiserheat-panel`. For a test build, run the workflow by hand under **Actions**, which publishes `edge`.
+   Home Assistant then offers the update.
 
-After the very first publish, open the package on GitHub (your profile → **Packages → wiserheat-panel → Package settings**) and change its visibility to **Public**. Until you do, nobody else can download it.
+Don't change `version` in `wiserheat-panel/config.yaml` by hand: it has to match an image that exists. For a test build, run the workflow by hand under **Actions**. That publishes `edge` and leaves Home Assistant alone.
+
+**The very first release** also needs the package made public. After the first build, open your GitHub profile → **Packages → wiserheat-panel → Package settings**, and change its visibility to **Public**. The workflow's Home Assistant step fails until you do. Re-run that step afterwards.
 
 To try the image locally, run `docker build -t wiserheat-panel .`, then `docker run --rm -p 8765:8765 wiserheat-panel`.
 

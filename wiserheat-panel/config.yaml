@@ -1,10 +1,14 @@
-# Home Assistant app (formerly "add-on"). Raise the version whenever the panel changes,
-# so Home Assistant offers the update.
+# Home Assistant app (formerly "add-on"). It downloads the same image as Docker users.
+#
+# Don't change "version" by hand: it must match a published image tag. After each release, the
+# "Docker image" workflow publishes the image, checks anyone can download it, and then sets the
+# version here itself, so Home Assistant only offers updates that exist.
 name: WiserHeat Control Panel
 description: See and control your whole home's Drayton Wiser heating on one screen.
 version: "0.1.2"
 slug: wiserheat_panel
 url: https://github.com/BayMax1990/WiserHeat-ControlPanel
+image: ghcr.io/baymax1990/wiserheat-panel
 arch:
   - aarch64
   - amd64

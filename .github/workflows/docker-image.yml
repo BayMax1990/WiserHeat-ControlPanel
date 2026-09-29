@@ -2,11 +2,13 @@
 # and publishes it to GitHub's container registry as ghcr.io/<owner>/wiserheat-panel.
 #
 # - Publishing a release tagged like v1.2.0 pushes the tags 1.2.0, 1.2 and latest.
-#   (A pre-release gets 1.2.0 and 1.2, but not latest.)
+#   (A pre-release gets 1.2.0 and 1.2, but not latest.) Tags must have all three numbers.
+# - Then, for a full release, the "home-assistant" job sets the Home Assistant app's version to
+#   match, once the image can be downloaded, so Home Assistant only offers updates that exist.
 # - Running the workflow by hand (Actions → Docker image → Run workflow) pushes "edge", for testing.
 #
 # The first time, the package is private. Make it public under the package's settings on GitHub,
-# or nobody else can download it.
+# then re-run the failed "home-assistant" job.
 
 name: Docker image
 
@@ -58,3 +60,43 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  home-assistant:
+    needs: build
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Check anyone can download the new image
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          repo="${GITHUB_REPOSITORY_OWNER,,}/wiserheat-panel"
+          token=$(curl -s "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r '.token // empty')
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+            "https://ghcr.io/v2/${repo}/manifests/${version}")
+          if [ "$code" != "200" ]; then
+            echo "::error::ghcr.io/${repo}:${version} can't be downloaded without signing in (HTTP ${code}). Make the wiserheat-panel package public on GitHub, then re-run this job."
+            exit 1
+          fi
+          echo "ghcr.io/${repo}:${version} is public."
+
+      - name: Set the Home Assistant app's version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sed -i -E "s/^version: .*/version: \"${version}\"/" wiserheat-panel/config.yaml
+          if git diff --quiet; then
+            echo "The Home Assistant app is already at ${version}."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Home Assistant app: version ${version}"
+          git push
