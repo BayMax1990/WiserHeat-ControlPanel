@@ -1,0 +1,60 @@
+# Builds the Docker image for PCs (amd64) and Raspberry Pi and other 64-bit ARM boards (arm64),
+# and publishes it to GitHub's container registry as ghcr.io/<owner>/wiserheat-panel.
+#
+# - Publishing a release tagged like v1.2.0 pushes the tags 1.2.0, 1.2 and latest.
+#   (A pre-release gets 1.2.0 and 1.2, but not latest.)
+# - Running the workflow by hand (Actions → Docker image → Run workflow) pushes "edge", for testing.
+#
+# The first time, the package is private. Make it public under the package's settings on GitHub,
+# or nobody else can download it.
+
+name: Docker image
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Registry names must be lower case, and GitHub user names often aren't.
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wiserheat-panel" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
+            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

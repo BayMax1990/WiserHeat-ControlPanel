@@ -1,13 +1,18 @@
 # WiserHeat Control Panel
 
+[![Home Assistant app](https://img.shields.io/badge/Home%20Assistant-app-41BDF5?logo=homeassistant&logoColor=white)](#install-on-home-assistant)
+[![Docker](https://img.shields.io/badge/Docker-amd64%20%7C%20arm64-2496ED?logo=docker&logoColor=white)](#run-with-docker)
+[![Windows, macOS and Linux](https://img.shields.io/badge/runs%20on-Windows%20%7C%20macOS%20%7C%20Linux-555?logo=nodedotjs&logoColor=white)](#get-started)
+
 **Your whole home's heating, on one screen.**
 
 A free control panel for Drayton Wiser heating systems. It talks straight to your Wiser hub over your home network. There's no cloud service, no account and no subscription.
 
 **Run it your way:**
 
-- **On Windows**, or any Mac or Linux computer. Double-click `start.bat`, and open it in your browser.
-- **As a Home Assistant app.** Install it in a few clicks and open it from the Home Assistant sidebar, signed in with your Home Assistant account. [Jump to the instructions](#install-on-home-assistant).
+- **On Windows**, or any Mac or Linux computer. Double-click `start.bat`, and open it in your browser. [Get started](#get-started).
+- **As a Home Assistant app.** Install it in a few clicks and open it from the Home Assistant sidebar, signed in with your Home Assistant account. [Install on Home Assistant](#install-on-home-assistant).
+- **With Docker**, on a home server, NAS or Raspberry Pi, always on for the whole house. [Run with Docker](#run-with-docker).
 - **From your phone or tablet**, on your home network, protected by a password.
 
 A short setup screen walks you through connecting to your hub the first time.
@@ -131,6 +136,26 @@ Click the button above, or add the repository by hand:
 
 Home Assistant handles signing in, so the panel doesn't ask for a password. The panel's settings, history and schedule backups are included in your Home Assistant backups.
 
+## Run with Docker
+
+For a home server, NAS or Raspberry Pi. Images are built for PCs (amd64) and 64-bit ARM boards (arm64).
+
+```
+docker run -d --name wiserheat-panel --restart unless-stopped \
+  -p 8765:8765 -v wiserheat-data:/data \
+  ghcr.io/baymax1990/wiserheat-panel:latest
+```
+
+Then open `http://<your server's address>:8765`. The first visitor creates a password, then a setup screen connects the panel to your hub.
+
+There's a ready-made [`docker-compose.yml`](docker-compose.yml) too. The [Docker guide](docs/DOCKER.md) covers:
+- Docker Compose;
+- presetting the password;
+- keeping data in a folder of your choice;
+- updating;
+- Synology, Unraid, Portainer and Raspberry Pi;
+- troubleshooting.
+
 ## Use it from your phone or other devices
 
 Out of the box, only the computer running the panel can open it. To use it from your phone, a tablet or another computer:
@@ -204,6 +229,12 @@ node tools/sync-ha-app.js
 ```
 
 For a new release, raise `version` in `wiserheat-panel/config.yaml` and add a line to `wiserheat-panel/CHANGELOG.md`, so Home Assistant users are offered the update. The script warns if you forget.
+
+**Publishing the Docker image.** On GitHub, create a release with a tag like `v1.0.0`. The *Docker image* workflow in `.github/workflows/` then builds it for amd64 and arm64, and publishes `1.0.0`, `1.0` and `latest` to `ghcr.io/baymax1990/wiserheat-panel`. For a test build, run the workflow by hand under **Actions**, which publishes `edge`.
+
+After the very first publish, open the package on GitHub (your profile → **Packages → wiserheat-panel → Package settings**) and change its visibility to **Public**. Until you do, nobody else can download it.
+
+To try the image locally, run `docker build -t wiserheat-panel .`, then `docker run --rm -p 8765:8765 wiserheat-panel`.
 
 ## Good to know
 

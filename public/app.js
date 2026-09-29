@@ -1293,8 +1293,10 @@ function accessPanel(st) {
     pw.set && !pw.fromEnv && net.local ? `<button class="btn ghost danger" data-act="pw-remove">Remove</button>` : '',
     pw.set ? `<button class="btn ghost" data-act="sign-out">${icon('log-out')}Sign out</button>` : '',
   ].join('');
+  // With no addresses from the server (as in Docker), the one this browser used is the best guide.
+  const urls = net.urls.length ? net.urls : [location.origin];
   const devices = net.exposed
-    ? `Other devices on your network can open the panel${net.urls.length ? ` at ${net.urls.map((u) => `<code>${esc(u)}</code>`).join(' or ')}` : ''}.`
+    ? `Other devices on your network can open the panel at ${urls.map((u) => `<code>${esc(u)}</code>`).join(' or ')}.`
     : 'Only this computer can open the panel. To use it from a phone or another computer, set a password, then set <code>"host": "0.0.0.0"</code> in config.json and restart the server.';
   return `<div class="setting">
       <div><b>Password</b><p>${status}</p></div>

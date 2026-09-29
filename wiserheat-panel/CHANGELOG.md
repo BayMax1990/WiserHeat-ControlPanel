@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Stops straight away when the app is stopped or updated, instead of waiting to be shut down.
+- Temperature history is saved more safely, so stopping mid-save can't damage it.
+
 ## 0.1.1
 
 - Fixed "502: Bad Gateway" when opening the panel. The app now starts where Home Assistant expects it.

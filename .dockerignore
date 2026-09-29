@@ -1,0 +1,5 @@
+# Only server.js and public/ go into the image. Keep everything else, especially your own
+# settings and secret, out of it.
+*
+!server.js
+!public/

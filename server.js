@@ -28,7 +28,16 @@ const DATA = DATA_DIR ? path.resolve(DATA_DIR) : path.join(ROOT, 'data');
 const BACKUPS = path.join(DATA, 'backups');
 const HISTORY_FILE = path.join(DATA, 'history.json');
 const LAYOUT_FILE = path.join(DATA, 'layout.json');
-fs.mkdirSync(BACKUPS, { recursive: true });
+try {
+  fs.mkdirSync(BACKUPS, { recursive: true });
+  fs.accessSync(DATA, fs.constants.W_OK);
+} catch (e) {
+  // Usually a Docker or NAS folder owned by another user. Say how to fix it, rather than crash with a stack trace.
+  console.error(`Can't save to the data folder ${DATA} (${e.code || e.message}).`);
+  console.error('In Docker, the panel runs as user 1000. Give it the folder with "chown -R 1000:1000 <folder>",');
+  console.error('or run the container as the folder\'s owner (for example --user 99:100 on Unraid).');
+  process.exit(1);
+}
 
 // Settings live in config.json, which the Settings page writes. With no config.json the
 // server still starts, and the page asks for the hub's address and secret.
@@ -120,7 +129,9 @@ function recordHistory(domain) {
   for (const plug of domain.SmartPlug || []) p[plug.id] = [plug.InstantaneousDemand ?? 0, plug.CurrentSummationDelivered ?? null];
   history.push({ t, r, h: domain.HeatingChannel?.[0]?.HeatingRelayState === 'On' ? 1 : 0, p, w: lastWifiRssi });
   history = history.filter((p) => t - p.t <= historyKeepMs());
-  fs.writeFile(HISTORY_FILE, JSON.stringify(history), () => {});
+  // Write a new file and swap it in, so stopping mid-write can't leave a half-written history.
+  const tmp = `${HISTORY_FILE}.tmp`;
+  fs.writeFile(tmp, JSON.stringify(history), (err) => { if (!err) fs.rename(tmp, HISTORY_FILE, () => {}); });
 }
 
 async function pollHistory() {
@@ -490,8 +501,12 @@ async function changePassword(req, res) {
 }
 
 // The addresses other devices can use to reach this computer.
+// Inside Docker the panel only sees the container's private address, which nobody else can reach,
+// so it doesn't list addresses there (the page shows the one the browser used instead).
+const IN_DOCKER = fs.existsSync('/.dockerenv');
+
 function networkUrls() {
-  if (!EXPOSED) return [];
+  if (!EXPOSED || IN_DOCKER) return [];
   if (!['0.0.0.0', '::'].includes(HOST)) return [`http://${HOST.includes(':') ? `[${HOST}]` : HOST}:${PORT}`];
   return Object.values(os.networkInterfaces()).flat()
     .filter((a) => a && a.family === 'IPv4' && !a.internal)
@@ -673,12 +688,21 @@ async function handle(req, res) {
 // which people naturally use on the computer itself. 0.0.0.0 and :: already include it.
 if (EXPOSED && !['0.0.0.0', '::'].includes(HOST)) http.createServer(handle).listen(PORT, '127.0.0.1');
 
+// Stop straight away when asked (docker stop, Ctrl+C, a service manager), instead of being killed
+// after a timeout. Everything is already saved as it happens.
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { console.log(`Stopping (${sig}).`); process.exit(0); });
+
 http.createServer(handle).listen(PORT, HOST, () => {
   if (HOME_ASSISTANT) {
     console.log(`WiserHeat Control Panel running as a Home Assistant app. Open it from the Home Assistant sidebar.${hubReady() ? ` Hub: ${config.hubIp}` : ' It will ask for your hub details.'}`);
     return;
   }
-  console.log(`WiserHeat Control Panel running at http://localhost:${PORT}  ${hubReady() ? `(hub ${config.hubIp})` : '(open it and enter your hub details in Settings)'}`);
+  if (IN_DOCKER) {
+    console.log(`WiserHeat Control Panel running in Docker, on port ${PORT} inside the container. ${hubReady() ? `Hub: ${config.hubIp}` : 'It will ask for your hub details.'}`);
+    console.log('Open it at http://<your server\'s address>:<the port you published>, for example http://192.168.1.20:8765');
+  } else {
+    console.log(`WiserHeat Control Panel running at http://localhost:${PORT}  ${hubReady() ? `(hub ${config.hubIp})` : '(open it and enter your hub details in Settings)'}`);
+  }
   if (EXPOSED) {
     const urls = networkUrls();
     if (urls.length) console.log(`Other devices can open it at ${urls.join(' or ')}`);

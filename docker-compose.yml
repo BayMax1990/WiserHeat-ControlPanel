@@ -1,0 +1,22 @@
+# WiserHeat Control Panel with Docker Compose. Full guide: docs/DOCKER.md
+#
+#   docker compose up -d
+#
+# Then open http://<this machine's address>:8765 and follow the setup screen.
+
+services:
+  wiserheat:
+    image: ghcr.io/baymax1990/wiserheat-panel:latest
+    # To build from this folder instead of downloading, swap the line above for:
+    # build: .
+    container_name: wiserheat-panel
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - wiserheat-data:/data
+    # environment:
+    #   PANEL_PASSWORD: "choose-a-password"   # set the sign-in password up front
+
+volumes:
+  wiserheat-data:
