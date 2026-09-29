@@ -210,9 +210,11 @@ To use the panel away from home, use a VPN such as [Tailscale](https://tailscale
 The panel can sit on your phone's home screen with its own icon, named after the panel's title. It opens straight to **Rooms**. Long-press the icon for shortcuts to Rooms, Schedules, Batteries and **Boost rooms**. **Settings → Add to your phone** shows the steps for whichever phone you're using.
 
 - **iPhone or iPad:** open the panel in Safari, tap **Share**, then **Add to Home Screen**. It opens full-screen, like an app.
-- **Android:** in Chrome, tap **⋮**, then **Add to Home screen** or **Install app**.
+- **Android:** in Chrome, tap **⋮**, then **Add to Home screen**. Then:
+  - on an ordinary `http://` address, such as `http://192.168.1.20:8765` on your home Wi-Fi, choose **Create shortcut**. Chrome's **Install** says "This app cannot be installed" there. The shortcut opens the panel in Chrome.
+  - on a secure `https://` address, choose **Install**. It becomes a full app with its own window.
 
-On a secure `https://` address, Android installs it as a full app with its own window. Both phones also show a friendly "Can't reach your heating" screen, rather than an error, when you're out of range. On an ordinary `http://` address, such as `http://192.168.1.20:8765` on your home Wi-Fi, Android adds a shortcut that opens in Chrome instead, and there's no offline screen.
+On a secure address, both phones also show a friendly "Can't reach your heating" screen, rather than an error, when you're out of range.
 
 An easy way to get a secure address is [Tailscale Serve](https://tailscale.com/kb/1312/serve). On the machine running the panel, turn on HTTPS for your Tailscale network, then run `tailscale serve --bg 8765`. The panel is then at `https://<machine name>.<your tailnet>.ts.net`, from anywhere your phone is signed in to Tailscale.
 

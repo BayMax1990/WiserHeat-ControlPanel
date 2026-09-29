@@ -3013,21 +3013,27 @@ function phonePanel(st) {
   let how;
   if (installedApp()) {
     how = `<div class="setting"><div><b>${icon('check')} Installed</b><p>You're using the panel as an app. Long-press its icon for shortcuts to Rooms, Schedules, Boost rooms and Batteries.</p></div></div>`;
-  } else if (installPrompt) {
-    how = `<div class="setting"><div><b>Install it</b><p>Adds the panel to this device's home screen or apps list, as its own app.</p></div>
-      <button class="btn primary" data-act="install-app">${icon('plus')}Install app</button></div>`;
   } else if (isIOS()) {
     how = `<div class="setting"><div><b>On this iPhone or iPad</b><ol class="phone-steps">
       <li>Open this page in <b>Safari</b>.</li>
       <li>Tap the <b>Share</b> button (the square with an arrow pointing up).</li>
       <li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li></ol></div></div>`;
-  } else if (isAndroid()) {
+  } else if (installPrompt) {
+    how = `<div class="setting"><div><b>Install it</b><p>Adds the panel to this device's home screen or apps list, as its own app.</p></div>
+      <button class="btn primary" data-act="install-app">${icon('plus')}Install app</button></div>`;
+  } else if (isAndroid() && isSecureContext) {
     how = `<div class="setting"><div><b>On this Android phone</b><ol class="phone-steps">
       <li>In Chrome, tap the <b>⋮</b> menu at the top right.</li>
-      <li>Tap <b>Add to Home screen</b> (or <b>Install app</b>), then <b>Install</b> or <b>Add</b>.</li></ol>
-      ${isSecureContext ? '' : `<p class="phone-note">On this address (<code>http://</code>), Android adds a shortcut that opens in Chrome. For a full app with its own window, open the panel through a secure <code>https://</code> address, for example with Tailscale. The README explains how.</p>`}</div></div>`;
+      <li>Tap <b>Add to Home screen</b>, then <b>Install</b>.</li></ol></div></div>`;
+  } else if (isAndroid()) {
+    // Chrome only installs apps from https:// addresses; on http:// its Install option fails.
+    how = `<div class="setting"><div><b>On this Android phone</b><ol class="phone-steps">
+      <li>In Chrome, tap the <b>⋮</b> menu at the top right.</li>
+      <li>Tap <b>Add to Home screen</b>.</li>
+      <li>Choose <b>Create shortcut</b>, then <b>Add</b>. Not <b>Install</b>: on this address it says "This app cannot be installed".</li></ol>
+      <p class="phone-note">The shortcut opens the panel in Chrome. Chrome only installs full apps, with their own window and offline screen, from secure <code>https://</code> addresses, and this one is <code>http://</code>. To get one, open the panel through Tailscale Serve; the README explains how.</p></div></div>`;
   } else {
-    how = `<div class="setting"><div><b>On your phone</b><p>Open ${here} in your phone's browser, on your home Wi-Fi. Then, on an iPhone, tap <b>Share → Add to Home Screen</b>. On Android, tap <b>⋮ → Add to Home screen</b>. Once added, it opens straight to Rooms, and long-pressing its icon gives shortcuts.</p></div></div>`;
+    how = `<div class="setting"><div><b>On your phone</b><p>Open ${here} in your phone's browser, on your home Wi-Fi. Then, on an iPhone, tap <b>Share → Add to Home Screen</b>. On Android, tap <b>⋮ → Add to Home screen</b>${isSecureContext ? '' : ', then <b>Create shortcut</b> (this address isn\'t <code>https://</code>, so Android can\'t install it as a full app)'}. Once added, it opens straight to Rooms, and long-pressing its icon gives shortcuts.</p></div></div>`;
   }
   return how;
 }
