@@ -16,7 +16,15 @@ const crypto = require('crypto');
 // config.json included, in one folder that updates never touch.
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
-const DATA = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data');
+
+// Running as a Home Assistant app? The app's Dockerfile says so, and Home Assistant also always gives
+// its apps a /data/options.json file, so the panel still knows if that setting goes missing. Home
+// Assistant then shows the panel in its sidebar through "ingress", and its own login has already
+// checked who's visiting.
+const HOME_ASSISTANT = process.env.HOME_ASSISTANT_APP === '1' || fs.existsSync('/data/options.json');
+
+const DATA_DIR = process.env.DATA_DIR || (HOME_ASSISTANT ? '/data' : '');
+const DATA = DATA_DIR ? path.resolve(DATA_DIR) : path.join(ROOT, 'data');
 const BACKUPS = path.join(DATA, 'backups');
 const HISTORY_FILE = path.join(DATA, 'history.json');
 const LAYOUT_FILE = path.join(DATA, 'layout.json');
@@ -24,7 +32,7 @@ fs.mkdirSync(BACKUPS, { recursive: true });
 
 // Settings live in config.json, which the Settings page writes. With no config.json the
 // server still starts, and the page asks for the hub's address and secret.
-const CONFIG_FILE = process.env.DATA_DIR ? path.join(DATA, 'config.json') : path.join(ROOT, 'config.json');
+const CONFIG_FILE = DATA_DIR ? path.join(DATA, 'config.json') : path.join(ROOT, 'config.json');
 const DEFAULTS = { title: 'Wiser Heating', hubIp: '', secret: '', host: '127.0.0.1', port: 8765, historyIntervalSeconds: 120, historyKeepHours: 168, pricePerKwh: 25, roomIcons: {} };
 let config = { ...DEFAULTS };
 try {
@@ -37,11 +45,9 @@ const hubReady = () => !!(config.hubIp && config.secret);
 
 // HOST decides who can connect: 127.0.0.1 (the default) is this computer only; 0.0.0.0 is any
 // device on the network, which needs a password (see "Sign-in" below).
-const PORT = Number(process.env.PORT) || config.port || 8765;
-const HOST = process.env.HOST || config.host || '127.0.0.1';
-// Running as a Home Assistant app (the app's Dockerfile sets this). Home Assistant then shows the
-// panel in its sidebar through "ingress", and its own login has already checked who's visiting.
-const HOME_ASSISTANT = process.env.HOME_ASSISTANT_APP === '1';
+// In Home Assistant, ingress expects port 8099 on every address.
+const PORT = Number(process.env.PORT) || (HOME_ASSISTANT ? 8099 : config.port || 8765);
+const HOST = process.env.HOST || (HOME_ASSISTANT ? '0.0.0.0' : config.host || '127.0.0.1');
 const EXPOSED = !['127.0.0.1', '::1', 'localhost'].includes(HOST);
 const historyIntervalMs = () => (config.historyIntervalSeconds || 120) * 1000;
 const historyKeepMs = () => (config.historyKeepHours || 168) * 3600 * 1000;
@@ -678,5 +684,5 @@ http.createServer(handle).listen(PORT, HOST, () => {
     if (urls.length) console.log(`Other devices can open it at ${urls.join(' or ')}`);
     if (!passwordSet()) console.log('No password yet: the first person to open it will be asked to create one.');
   }
-  if (process.env.DATA_DIR) console.log(`Settings and data are kept in ${DATA}`);
+  if (DATA_DIR) console.log(`Settings and data are kept in ${DATA}`);
 });

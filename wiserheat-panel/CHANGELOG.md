@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Fixed "502: Bad Gateway" when opening the panel. The app now starts where Home Assistant expects it.
+
 ## 0.1.0
 
 - First release as a Home Assistant app.
