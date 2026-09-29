@@ -1491,6 +1491,7 @@ const SETTINGS_SECTIONS = [
   ['s-icons', 'sofa', 'Room icons'],
   ['s-hub', 'wifi', 'Hub connection'],
   ['s-access', 'lock', 'Sign-in and access'],
+  ['s-phone', 'smartphone', 'Add to your phone'],
   ['s-rec', 'clock', 'Recording'],
   ['s-heating', 'heater', 'Heating system'],
 ];
@@ -1559,6 +1560,9 @@ function settingsView() {
 
     ${sectionHead('s-access', 'lock', 'Sign-in and access', 'Who can open this panel.')}
     <div class="diag-panel">${accessPanel(st)}</div>
+
+    ${sectionHead('s-phone', 'smartphone', 'Add to your phone', 'Put the panel on your home screen, with its own icon, so it opens like an app straight to Rooms.')}
+    <div class="diag-panel">${phonePanel(st)}</div>
 
     ${sectionHead('s-rec', 'clock', 'Recording', "The hub doesn't keep any history, so this panel records temperatures while it's running. The graphs and boiler statistics come from these recordings.")}
     <div class="diag-panel">
@@ -2744,6 +2748,7 @@ document.addEventListener('click', (e) => {
     case 'setup-back': return setupGo(state.setupStep - 1);
     case 'setup-connect': return setupConnect();
     case 'setup-finish': return setupFinish();
+    case 'install-app': return installApp();
     case 'pw-change': return openPasswordModal();
     case 'pw-remove': return openPasswordModal(true);
     case 'sign-out': return signOut();
@@ -2935,6 +2940,8 @@ function updateThemeBtn() {
   b.innerHTML = icon(isDark() ? 'sun' : 'moon');
   b.title = label;
   b.setAttribute('aria-label', label);
+  // The phone's status bar, when installed as an app, matches the page.
+  $('#themeColor')?.setAttribute('content', isDark() ? '#0f141a' : '#e8ecf0');
 }
 darkQuery.addEventListener('change', updateThemeBtn);
 updateThemeBtn();
@@ -2944,11 +2951,89 @@ let booted = false;
 async function boot() {
   renderAll();
   await loadSettings();
+  registerServiceWorker();
   if (state.settings && !hubConfigured()) { state.setupStep = 0; renderAll(); return startTimers(); }
   await refresh();
   loadHistory();
   startTimers();
+  // Opened from the phone app's "Boost rooms" shortcut.
+  if (launchAction === 'boost' && state.domain?.Room?.length) { launchAction = null; openBoostPicker(); }
 }
+
+// ---------------------------------------------------------------------------
+// The phone app ("Add to Home Screen")
+
+// Opened from the app icon or one of its long-press shortcuts: ?view=rooms, ?action=boost, and so on.
+const VIEWS = ['schedules', 'rooms', 'batteries', 'diagnostics', 'settings'];
+let launchAction = null;
+(function readLaunchUrl() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('view') && !q.has('action')) return;
+  if (VIEWS.includes(q.get('view'))) { state.view = q.get('view'); store.set('view', state.view); }
+  if (q.get('action') === 'boost') launchAction = 'boost';
+  history.replaceState(null, '', location.pathname); // so a reload doesn't repeat it
+})();
+
+// Phones only run service workers on secure (https) addresses. Inside Home Assistant, the Home
+// Assistant app is the phone app, so the panel doesn't install itself there.
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || !isSecureContext || state.settings?.homeAssistant) return;
+  navigator.serviceWorker.register('sw.js').catch(() => { /* works without it */ });
+}
+
+// Chrome, Edge and Android offer their own Install button; keep it for Settings.
+let installPrompt = null;
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  if (state.view === 'settings') renderMain();
+});
+addEventListener('appinstalled', () => {
+  installPrompt = null;
+  toast('Installed. Open it from your home screen or apps list.');
+  if (state.view === 'settings') renderMain();
+});
+const installedApp = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = () => /android/i.test(navigator.userAgent);
+
+async function installApp() {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => null);
+  installPrompt = null;
+  renderMain();
+}
+
+function phonePanel(st) {
+  if (st.homeAssistant) {
+    return `<div class="setting"><div><b>Use the Home Assistant app</b><p>On your phone, the panel lives inside the Home Assistant app: open it, then <b>WiserHeat</b> in its sidebar. Turn on <b>Show in sidebar</b> on the app's Info page in Home Assistant if it isn't there.</p></div></div>`;
+  }
+  const here = `<code>${esc(location.origin + location.pathname)}</code>`;
+  let how;
+  if (installedApp()) {
+    how = `<div class="setting"><div><b>${icon('check')} Installed</b><p>You're using the panel as an app. Long-press its icon for shortcuts to Rooms, Schedules, Boost rooms and Batteries.</p></div></div>`;
+  } else if (installPrompt) {
+    how = `<div class="setting"><div><b>Install it</b><p>Adds the panel to this device's home screen or apps list, as its own app.</p></div>
+      <button class="btn primary" data-act="install-app">${icon('plus')}Install app</button></div>`;
+  } else if (isIOS()) {
+    how = `<div class="setting"><div><b>On this iPhone or iPad</b><ol class="phone-steps">
+      <li>Open this page in <b>Safari</b>.</li>
+      <li>Tap the <b>Share</b> button (the square with an arrow pointing up).</li>
+      <li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li></ol></div></div>`;
+  } else if (isAndroid()) {
+    how = `<div class="setting"><div><b>On this Android phone</b><ol class="phone-steps">
+      <li>In Chrome, tap the <b>⋮</b> menu at the top right.</li>
+      <li>Tap <b>Add to Home screen</b> (or <b>Install app</b>), then <b>Install</b> or <b>Add</b>.</li></ol>
+      ${isSecureContext ? '' : `<p class="phone-note">On this address (<code>http://</code>), Android adds a shortcut that opens in Chrome. For a full app with its own window, open the panel through a secure <code>https://</code> address, for example with Tailscale. The README explains how.</p>`}</div></div>`;
+  } else {
+    how = `<div class="setting"><div><b>On your phone</b><p>Open ${here} in your phone's browser, on your home Wi-Fi. Then, on an iPhone, tap <b>Share → Add to Home Screen</b>. On Android, tap <b>⋮ → Add to Home screen</b>. Once added, it opens straight to Rooms, and long-pressing its icon gives shortcuts.</p></div></div>`;
+  }
+  return how;
+}
+
+// ---------------------------------------------------------------------------
+// Background refreshes, started once after the first load.
 
 function startTimers() {
   if (booted) return;

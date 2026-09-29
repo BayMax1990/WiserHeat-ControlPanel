@@ -15,7 +15,7 @@ A free control panel for Drayton Wiser heating systems. It talks straight to you
 - **As a Home Assistant app.** Install it in a few clicks and open it from the Home Assistant sidebar, signed in with your Home Assistant account. [Install on Home Assistant](#install-on-home-assistant).
 - **With Docker**, on a home server, NAS or Raspberry Pi, always on for the whole house. [Run with Docker](#run-with-docker).
 - **As a Linux service**, on a Raspberry Pi or Linux server without Docker. One command installs it, and it starts by itself at boot. [Install on Linux](#install-on-linux).
-- **From your phone or tablet**, on your home network, protected by a password.
+- **On your phone's home screen**, like an app, from anywhere on your home network, protected by a password. [Add it to your phone](#add-it-to-your-phones-home-screen).
 
 The first time, a short setup screen finds your hub on the network and walks you through connecting to it.
 
@@ -204,6 +204,19 @@ Each device signs in once with your password and stays signed in for 30 days. Ch
 On a home server, you can set the password before anyone visits with the environment variable `PANEL_PASSWORD`. If you don't, the first person to open the panel is asked to create one.
 
 To use the panel away from home, use a VPN such as [Tailscale](https://tailscale.com) or WireGuard. **Don't forward a port on your router to it.**
+
+### Add it to your phone's home screen
+
+The panel can sit on your phone's home screen with its own icon, named after the panel's title. It opens straight to **Rooms**. Long-press the icon for shortcuts to Rooms, Schedules, Batteries and **Boost rooms**. **Settings → Add to your phone** shows the steps for whichever phone you're using.
+
+- **iPhone or iPad:** open the panel in Safari, tap **Share**, then **Add to Home Screen**. It opens full-screen, like an app.
+- **Android:** in Chrome, tap **⋮**, then **Add to Home screen** or **Install app**.
+
+On a secure `https://` address, Android installs it as a full app with its own window. Both phones also show a friendly "Can't reach your heating" screen, rather than an error, when you're out of range. On an ordinary `http://` address, such as `http://192.168.1.20:8765` on your home Wi-Fi, Android adds a shortcut that opens in Chrome instead, and there's no offline screen.
+
+An easy way to get a secure address is [Tailscale Serve](https://tailscale.com/kb/1312/serve). On the machine running the panel, turn on HTTPS for your Tailscale network, then run `tailscale serve --bg 8765`. The panel is then at `https://<machine name>.<your tailnet>.ts.net`, from anywhere your phone is signed in to Tailscale.
+
+In Home Assistant, use the Home Assistant app on your phone instead: the panel is in its sidebar.
 
 ## Private and safe by design
 

@@ -854,7 +854,42 @@ async function api(req, res, url) {
   return send(res, 404, { error: 'Unknown endpoint' });
 }
 
+// The phone app description ("Add to Home Screen"). Built here so the app is named after the
+// panel's title. Addresses are relative, so it also works under Home Assistant's path.
+function webManifest() {
+  const name = config.title || DEFAULTS.title;
+  const shortName = name.length <= 12 ? name : name.split(/\s+/)[0].slice(0, 12);
+  const icon = [{ src: 'icon-192.png', sizes: '192x192', type: 'image/png' }];
+  return {
+    id: './',
+    name,
+    short_name: shortName,
+    description: "See and control your whole home's heating on one screen.",
+    start_url: './?view=rooms',
+    scope: './',
+    display: 'standalone',
+    background_color: '#e8ecf0',
+    theme_color: '#e8ecf0',
+    icons: [
+      { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+    // Long-press the app's icon for these.
+    shortcuts: [
+      { name: 'Rooms', url: './?view=rooms', icons: icon },
+      { name: 'Schedules', url: './?view=schedules', icons: icon },
+      { name: 'Boost rooms', short_name: 'Boost', url: './?action=boost', icons: icon },
+      { name: 'Batteries', url: './?view=batteries', icons: icon },
+    ],
+  };
+}
+
 function serveStatic(req, res, url) {
+  if (url.pathname.endsWith('/manifest.webmanifest')) {
+    res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-cache' });
+    return res.end(JSON.stringify(webManifest(), null, 1));
+  }
   let file = path.normalize(path.join(PUBLIC, decodeURIComponent(url.pathname)));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   if (url.pathname === '/' ) file = path.join(PUBLIC, 'index.html');
