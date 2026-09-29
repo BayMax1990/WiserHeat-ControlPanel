@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Local control panel for a Drayton Wiser heating hub",
+  "author": "Oliver Bundy",
+  "license": "MIT",
+  "repository": "github:BayMax1990/WiserHeat-ControlPanel",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "engines": { "node": ">=18" }

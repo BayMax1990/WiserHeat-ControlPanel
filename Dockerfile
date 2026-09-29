@@ -7,7 +7,9 @@ FROM node:22-alpine
 
 LABEL org.opencontainers.image.title="WiserHeat Control Panel" \
       org.opencontainers.image.description="See and control your whole home's Drayton Wiser heating on one screen." \
-      org.opencontainers.image.source="https://github.com/BayMax1990/WiserHeat-ControlPanel"
+      org.opencontainers.image.source="https://github.com/BayMax1990/WiserHeat-ControlPanel" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.authors="Oliver Bundy"
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \

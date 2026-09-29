@@ -3,6 +3,7 @@
 [![Home Assistant app](https://img.shields.io/badge/Home%20Assistant-app-41BDF5?logo=homeassistant&logoColor=white)](#install-on-home-assistant)
 [![Docker](https://img.shields.io/badge/Docker-amd64%20%7C%20arm64-2496ED?logo=docker&logoColor=white)](#run-with-docker)
 [![Windows, macOS and Linux](https://img.shields.io/badge/runs%20on-Windows%20%7C%20macOS%20%7C%20Linux-555?logo=nodedotjs&logoColor=white)](#get-started)
+[![MIT licence](https://img.shields.io/badge/licence-MIT-2f8a5b)](LICENSE)
 
 **Your whole home's heating, on one screen.**
 
@@ -278,3 +279,11 @@ To try the image locally, run `docker build -t wiserheat-panel .`, then `docker 
 ## Good to know
 
 This is an independent project. It isn't made, endorsed or supported by Drayton, Wiser or Schneider Electric. It uses the hub's local interface, which isn't officially documented, so a hub firmware update could change how things behave. It has been tested with hub firmware 3.18.3. Use it at your own risk.
+
+## Licence
+
+Free to use, change and share for any purpose, including commercially, under the [MIT licence](LICENSE). Keep the copyright notice and licence with any copy or version you share.
+
+© 2026 Oliver Bundy
+
+Icons are from [Lucide](https://lucide.dev), under the ISC licence.
