@@ -2,7 +2,17 @@
 
 **Your whole home's heating, on one screen.**
 
-A free control panel for Drayton Wiser heating systems. It runs on your own computer and talks straight to your Wiser hub over your home network. There's no cloud service, no account and no subscription, and nothing to install apart from Node.js.
+A free control panel for Drayton Wiser heating systems. It talks straight to your Wiser hub over your home network. There's no cloud service, no account and no subscription.
+
+**Run it your way:**
+
+- **On Windows**, or any Mac or Linux computer. Double-click `start.bat`, and open it in your browser.
+- **As a Home Assistant app.** Install it in a few clicks and open it from the Home Assistant sidebar, signed in with your Home Assistant account. [Jump to the instructions](#install-on-home-assistant).
+- **From your phone or tablet**, on your home network, protected by a password.
+
+A short setup screen walks you through connecting to your hub the first time.
+
+**What you get:**
 
 - Every room's schedule on one colour-coded timeline, today or the whole week
 - Change a whole floor at once: warmer, cooler, earlier or later
@@ -98,19 +108,50 @@ The cog in the top corner opens **Settings**. There you can:
 3. Start it. On Windows, double-click `start.bat`. On a Mac or Linux, run `node server.js` in the project folder.
 4. Open **http://localhost:8765** in your browser.
 
-The first time it runs, the panel opens **Settings** and asks for two things:
+The first time it runs, a setup screen asks for two things:
 
 - **Your hub's address.** This is its IP address on your home network, for example `192.168.1.50`. Your router's list of connected devices shows it, usually with a name starting with *WiserHeat*.
 - **Your hub's secret.** This is a long code that lets the panel control the hub. Press the setup button on the hub once so its light flashes, and join the *WiserHeat* Wi-Fi network it creates. Then open `http://192.168.8.1/secret` in your browser and copy the text. Press the setup button again to finish.
 
-Paste both in, press **Test connection**, then **Save connection**. The panel then opens on your schedules.
+Press **Connect**. The panel lists the rooms it found, then opens your schedules. You can change these details later in **Settings**.
+
+## Install on Home Assistant
+
+The panel is also a Home Assistant app (Home Assistant used to call these "add-ons"). It needs Home Assistant OS, which most people use.
+
+[![Add this repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FBayMax1990%2FWiserHeat-ControlPanel)
+
+Click the button above, or add the repository by hand:
+
+1. In Home Assistant, go to **Settings → Apps**, and click **App store** in the bottom-right corner.
+2. Open the **⋮** menu in the top right, choose **Repositories**, and add `https://github.com/BayMax1990/WiserHeat-ControlPanel`.
+3. Find **WiserHeat Control Panel** in the store, then click **Install**. Home Assistant builds it on your device, which can take a few minutes the first time.
+4. Click **Start**, and turn on **Show in sidebar**.
+5. Open **WiserHeat** from the sidebar and follow the setup screen.
+
+Home Assistant handles signing in, so the panel doesn't ask for a password. The panel's settings, history and schedule backups are included in your Home Assistant backups.
+
+## Use it from your phone or other devices
+
+Out of the box, only the computer running the panel can open it. To use it from your phone, a tablet or another computer:
+
+1. In **Settings → Sign-in and access**, set a password.
+2. Add `"host": "0.0.0.0"` to `config.json`, or start the server with the environment variable `HOST=0.0.0.0`.
+3. Restart the panel. Settings now shows the address other devices can use, such as `http://192.168.1.20:8765`.
+
+Each device signs in once with your password and stays signed in for 30 days. Changing the password signs every other device out.
+
+On a home server, you can set the password before anyone visits with the environment variable `PANEL_PASSWORD`. If you don't, the first person to open the panel is asked to create one.
+
+To use the panel away from home, use a VPN such as [Tailscale](https://tailscale.com) or WireGuard. **Don't forward a port on your router to it.**
 
 ## Private and safe by design
 
 - **Nothing leaves your home.** The panel talks only to your hub, over your own network.
 - **Your secret stays put.** It's saved on your computer and never sent to the web page, not even to display it.
 - **It only does what it says.** The server forwards a short, fixed list of requests to the hub and nothing else.
-- **Other websites can't use it.** The server only answers its own page, opened on the same computer, so other websites in your browser can't read your heating or change your settings.
+- **A password once other devices can connect.** Passwords are stored as a secure hash, never as the password itself. Repeated wrong guesses lock that device out for a while.
+- **Other websites can't use it.** The server refuses requests sent by other websites, so a page open in your browser can't read your heating or change your settings.
 - **Mistakes can be undone.** Schedules are backed up before every change.
 
 ## Where your data is kept
@@ -123,6 +164,15 @@ Paste both in, press **Test connection**, then **Save connection**. The panel th
 | `data/backups/` | A copy of every schedule, saved before each change |
 
 `config.json` and `data/` are listed in `.gitignore`, so they won't be committed if you fork this project.
+
+Set the environment variable `DATA_DIR` to keep all of these, `config.json` included, in one folder of your choice. That's handy on a server, because updating the panel never touches that folder.
+
+| Environment variable | What it does |
+|---|---|
+| `PORT` | The port to listen on (default `8765`) |
+| `HOST` | `127.0.0.1` for this computer only (the default), or `0.0.0.0` for any device on your network |
+| `DATA_DIR` | One folder for settings and data |
+| `PANEL_PASSWORD` | Sets the sign-in password, which then can't be changed in Settings |
 
 ## How it talks to the hub
 
@@ -143,7 +193,17 @@ Paste both in, press **Test connection**, then **Save connection**. The panel th
 
 Temperatures are in tenths of a degree (`185` is 18.5°), and `-200` means off. Times are written as HHMM numbers (`630` is 06:30).
 
-To run it on a different port, change `port` in `config.json` or set the `PORT` environment variable.
+The panel's own sign-in uses `GET /api/session`, `POST /api/login`, `POST /api/logout`, `POST /api/auth/setup` and `PUT /api/auth/password`. None of these reach the hub.
+
+## Working on the code
+
+The panel is `server.js` and the `public/` folder. The Home Assistant app lives in `wiserheat-panel/`, and Home Assistant builds it from that folder alone, so it keeps its own copy of the panel in `wiserheat-panel/app/`. After changing the panel, refresh that copy before committing:
+
+```
+node tools/sync-ha-app.js
+```
+
+For a new release, raise `version` in `wiserheat-panel/config.yaml` and add a line to `wiserheat-panel/CHANGELOG.md`, so Home Assistant users are offered the update. The script warns if you forget.
 
 ## Good to know
 

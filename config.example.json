@@ -2,6 +2,7 @@
   "title": "Wiser Heating",
   "hubIp": "192.168.1.50",
   "secret": "paste-your-hub-secret-here",
+  "host": "127.0.0.1",
   "port": 8765,
   "historyIntervalSeconds": 120,
   "historyKeepHours": 168,
