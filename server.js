@@ -267,6 +267,251 @@ async function restoreBackup(file) {
 // Room order and groups (Upstairs, Downstairs…). Only the panel uses these; the hub never sees them.
 // { rooms: [ungrouped room ids, in order], groups: [{ id, name, rooms: [ids] }] }
 
+// ---------------------------------------------------------------------------
+// Scheduled away ("trips"). Saved in trips.json in the data folder and run by the server, so they
+// switch on time with the page closed. Times are stored as moments (milliseconds since 1970).
+// Weekly repeats keep the same local clock time in the home's time zone, across clock changes.
+//
+// trips.json: { trips: [{ id, name, start, end, warmupMinutes, tz, repeat: null | { until } }],
+//               done: { "<tripId>@<start>": "started" | "ended" | "cancelled" },
+//               running: null | { key, name, offAt, startedAt },
+//               error: null | { at, message } }
+
+const TRIPS_FILE = path.join(DATA, 'trips.json');
+const MINUTE = 60e3, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
+// How often trips are checked, and how long after switching Away on before a manual "off" counts.
+// TRIPS_TEST_FAST=1 shortens both, for the automated tests only.
+const TRIP_TICK = process.env.TRIPS_TEST_FAST === '1' ? 2000 : MINUTE;
+const TRIP_GRACE = process.env.TRIPS_TEST_FAST === '1' ? 5000 : 3 * MINUTE;
+let trips = { trips: [], done: {}, running: null, error: null };
+try { trips = { ...trips, ...JSON.parse(fs.readFileSync(TRIPS_FILE, 'utf8')) }; } catch { /* no trips yet */ }
+function saveTrips() {
+  const tmp = `${TRIPS_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(trips, null, 1));
+  fs.renameSync(tmp, TRIPS_FILE);
+}
+
+const SERVER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+function validTz(tz) {
+  try { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return tz; } catch { return SERVER_TZ; }
+}
+// A moment's local date and time in a time zone.
+function localParts(ms, tz) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(new Date(ms)).map((x) => [x.type, Number(x.value)]));
+  return { y: p.year, m: p.month, d: p.day, h: p.hour % 24, mi: p.minute, s: p.second };
+}
+// The moment a local date and time happens in a time zone (days may overflow, e.g. d: 35).
+function fromLocal({ y, m, d, h, mi }, tz) {
+  const wall = Date.UTC(y, m - 1, d, h, mi);
+  const offsetAt = (ms) => { const p = localParts(ms, tz); return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000; };
+  let ms = wall - offsetAt(wall);
+  ms = wall - offsetAt(ms); // settle across a clock change
+  return ms;
+}
+const plusLocalDays = (ms, days, tz) => { const p = localParts(ms, tz); return fromLocal({ ...p, d: p.d + days }, tz); };
+
+// A trip's away periods that overlap [from, to): { key, tripId, name, start, end, offAt }.
+// offAt is when Away switches off: the return time, less the warm-up.
+function tripPeriods(trip, from, to) {
+  const out = [];
+  const first = trip.repeat ? Math.max(0, Math.floor((from - trip.end) / (7 * DAY)) - 1) : 0;
+  for (let k = first; k < first + 600; k++) {
+    if (k > 0 && !trip.repeat) break;
+    const start = k === 0 ? trip.start : plusLocalDays(trip.start, 7 * k, trip.tz);
+    if (start >= to) break;
+    if (k > 0 && trip.repeat.until && start >= trip.repeat.until) break;
+    const end = k === 0 ? trip.end : plusLocalDays(trip.end, 7 * k, trip.tz);
+    const offAt = Math.max(start, end - (trip.warmupMinutes || 0) * MINUTE);
+    if (end > from) out.push({ key: `${trip.id}@${start}`, tripId: trip.id, name: trip.name || '', start, end, offAt, repeat: !!trip.repeat });
+  }
+  return out;
+}
+const allPeriods = (from, to) => trips.trips.flatMap((t) => tripPeriods(t, from, to)).sort((a, b) => a.start - b.start);
+const finished = (key) => trips.done[key] === 'ended' || trips.done[key] === 'cancelled';
+
+// What the page needs: the trip under way, the next one, periods to shade on the timeline, and any problem.
+function tripStatus(now = Date.now()) {
+  const periods = allPeriods(now - DAY, now + 9 * DAY).filter((p) => trips.done[p.key] !== 'cancelled');
+  const active = trips.running ? periods.find((p) => p.key === trips.running.key) || null : null;
+  const next = periods.find((p) => p.start > now && !finished(p.key) && p.key !== trips.running?.key) || null;
+  return {
+    active,
+    next,
+    periods: periods.map(({ start, offAt, name }) => ({ start, offAt, name })), // for shading the timeline
+    error: trips.error,
+  };
+}
+
+// Switch the hub's Away mode, the same way the page's Away switch does, and check it took.
+async function setHubAway(on) {
+  const limit = (await getDomain()).System?.AwayModeSetPointLimit ?? 70;
+  for (const type of on ? ['Away', 2] : ['None', 0]) { // most firmware takes the name; some want the number
+    try { await hub('PATCH', '/data/domain/System', { RequestOverride: { Type: type, SetPoint: on ? limit : 0 } }); } catch { continue; }
+    await new Promise((r) => setTimeout(r, 1500));
+    if (((await getDomain()).System?.OverrideType === 'Away') === on) return;
+  }
+  throw new Error(`the hub didn't switch Away ${on ? 'on' : 'off'}`);
+}
+
+// Boosts and "until the next change" temperatures are cancelled when a trip starts. Rooms set to
+// Manual mode are left alone: that's a lasting choice, and Away caps them anyway.
+async function cancelRoomOverrides() {
+  for (const r of (await getDomain()).Room || []) {
+    if (r.OverrideType && r.OverrideType !== 'None') {
+      await hub('PATCH', `/data/domain/Room/${r.id}`, { RequestOverride: { Type: 'None', DurationMinutes: 0, SetPoint: 0, Originator: 'App' } });
+    }
+  }
+}
+
+const fmtLocal = (ms) => new Date(ms).toLocaleString('en-GB', { timeZone: SERVER_TZ, weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
+// Trip changes and the scheduler's checks take turns, so a trip can't be deleted or ended halfway
+// through being switched on.
+let tripLock = Promise.resolve();
+function withTrips(fn) {
+  const p = tripLock.then(fn, fn);
+  tripLock = p.catch(() => {});
+  return p;
+}
+let tripCheckWaiting = false;
+function tripTick() {
+  if (tripCheckWaiting) return tripLock; // one's already queued
+  tripCheckWaiting = true;
+  return withTrips(() => { tripCheckWaiting = false; return tripCheck(); });
+}
+
+async function tripCheck() {
+  if (!hubReady()) return;
+  const now = Date.now();
+  let changed = false;
+  try {
+    const due = allPeriods(now - 60 * DAY, now + MINUTE).find((p) => p.start <= now && now < p.offAt && !finished(p.key));
+    const run = trips.running;
+    if (run && (!due || due.key !== run.key)) {
+      if (due) {
+        // Another trip carries straight on (or this one was edited): stay away, under the new one.
+        // Check Away really is on: the panel may have stopped just after switching it off, before saving.
+        if ((await getDomain()).System?.OverrideType !== 'Away') await setHubAway(true);
+        trips.done[run.key] = 'ended';
+        trips.running = { key: due.key, name: due.name, offAt: due.offAt, startedAt: run.startedAt };
+        trips.done[due.key] = 'started';
+      } else {
+        await setHubAway(false);
+        trips.done[run.key] = 'ended';
+        trips.running = null;
+        console.log(`[away] trip${run.name ? ` "${run.name}"` : ''} finished: Away off`);
+      }
+      trips.error = null;
+      changed = true;
+    } else if (run) {
+      // Someone switched Away off by hand: that ends the trip. (Not straight after we switched it on.)
+      if (now - run.startedAt > TRIP_GRACE && (await getDomain()).System?.OverrideType !== 'Away') {
+        trips.done[run.key] = 'cancelled';
+        trips.running = null;
+        trips.error = null;
+        changed = true;
+        console.log('[away] Away was switched off by hand, so the trip has ended');
+      }
+    } else if (due) {
+      await cancelRoomOverrides();
+      await setHubAway(true);
+      trips.done[due.key] = 'started';
+      trips.running = { key: due.key, name: due.name, offAt: due.offAt, startedAt: now };
+      trips.error = null;
+      changed = true;
+      console.log(`[away] trip${due.name ? ` "${due.name}"` : ''} started: Away on until ${fmtLocal(due.offAt)}`);
+    }
+  } catch (e) {
+    const doing = trips.running ? 'switch Away off' : 'switch Away on';
+    const message = `Couldn't ${doing}: ${e.message}. Still trying every minute.`;
+    if (trips.error?.message !== message) console.warn(`[away] ${message}`);
+    trips.error = { at: trips.error?.at || now, message };
+    changed = true;
+  }
+  // Tidy up: one-off trips a day after they've finished, repeats a day after their last date.
+  const before = trips.trips.length;
+  trips.trips = trips.trips.filter((t) => {
+    if (trips.running?.key.startsWith(`${t.id}@`)) return true;
+    return t.repeat ? !t.repeat.until || t.repeat.until > now - DAY : t.end > now - DAY;
+  });
+  for (const [key] of Object.entries(trips.done)) if (Number(key.split('@')[1]) < now - 60 * DAY) delete trips.done[key];
+  if (changed || trips.trips.length !== before) saveTrips();
+}
+setInterval(tripTick, TRIP_TICK);
+setTimeout(tripTick, 5000);
+
+const newTripId = () => `t${Date.now().toString(36)}${crypto.randomBytes(2).toString('hex')}`;
+
+function cleanTrip(b, id) {
+  const num = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : NaN);
+  const start = num(b.start), end = num(b.end);
+  if (Number.isNaN(start) || Number.isNaN(end)) throw bad('Choose when you leave and when you get back');
+  if (end <= start) throw bad('The return has to be after you leave');
+  const warmupMinutes = b.warmupMinutes == null ? 180 : num(b.warmupMinutes);
+  if (!(warmupMinutes >= 0 && warmupMinutes <= 24 * 60)) throw bad('The warm-up must be between 0 and 24 hours');
+  if (end - warmupMinutes * MINUTE <= start) throw bad('The warm-up is as long as the trip. Choose a shorter warm-up.');
+  let repeat = null;
+  if (b.repeat) {
+    if (end - start >= 7 * DAY) throw bad('A trip that repeats every week has to be shorter than a week');
+    const until = b.repeat.until == null || b.repeat.until === '' ? null : num(b.repeat.until);
+    if (until !== null && (Number.isNaN(until) || until <= start)) throw bad('The repeats have to finish after the first trip starts');
+    repeat = { until };
+  }
+  if (!repeat && end <= Date.now()) throw bad('That trip has already finished');
+  return { id, name: String(b.name ?? '').trim().slice(0, 40), start, end, warmupMinutes, tz: validTz(b.tz || SERVER_TZ), repeat };
+}
+
+// Ends the trip under way, now: switch Away off, and remember it ended early.
+async function endRunningTrip() {
+  const run = trips.running;
+  if (!run) return;
+  await setHubAway(false);
+  trips.done[run.key] = 'cancelled';
+  trips.running = null;
+  trips.error = null;
+  saveTrips();
+}
+
+// Each trip with its next (or current) away period, for the list.
+function tripsOut() {
+  const now = Date.now();
+  const list = trips.trips.map((t) => {
+    const upcoming = tripPeriods(t, now, now + 400 * DAY).find((p) => p.key === trips.running?.key || !finished(p.key)) || null;
+    return { ...t, upcoming, active: !!upcoming && upcoming.key === trips.running?.key };
+  });
+  return { trips: list.sort((a, b) => (a.upcoming?.start ?? Infinity) - (b.upcoming?.start ?? Infinity)), status: tripStatus() };
+}
+
+async function tripsApi(req, res, m, p) {
+  let match;
+  if (m === 'GET' && p === '/api/trips') return send(res, 200, tripsOut());
+  // Changes wait their turn with the scheduler, then check straight away, so a trip that has
+  // already started switches Away on before the answer comes back.
+  const change = async (fn) => withTrips(async () => { await fn(); saveTrips(); await tripCheck(); return send(res, 200, tripsOut()); });
+  if (m === 'POST' && p === '/api/trips') {
+    const b = await readBody(req);
+    if (trips.trips.length >= 50) return send(res, 400, { error: "That's a lot of trips. Delete some old ones first." });
+    const t = cleanTrip(b, newTripId());
+    return change(() => { trips.trips.push(t); });
+  }
+  if (m === 'PUT' && (match = p.match(/^\/api\/trips\/([\w-]+)$/))) {
+    const b = await readBody(req);
+    if (!trips.trips.some((t) => t.id === match[1])) return send(res, 404, { error: 'That trip no longer exists' });
+    const t = cleanTrip(b, match[1]);
+    return change(() => { const i = trips.trips.findIndex((x) => x.id === t.id); if (i >= 0) trips.trips[i] = t; });
+  }
+  if (m === 'DELETE' && (match = p.match(/^\/api\/trips\/([\w-]+)$/))) {
+    return change(async () => {
+      if (trips.running?.key.startsWith(`${match[1]}@`)) await endRunningTrip();
+      trips.trips = trips.trips.filter((t) => t.id !== match[1]);
+    });
+  }
+  if (m === 'POST' && p === '/api/trips/home') return change(endRunningTrip);
+  return false;
+}
+
 function readLayout() {
   try { return JSON.parse(fs.readFileSync(LAYOUT_FILE, 'utf8')); } catch { return { rooms: [], groups: [] }; }
 }
@@ -766,7 +1011,7 @@ async function api(req, res, url) {
     const domain = await getDomain();
     const schedules = await getSchedules();
     recordHistory(domain);
-    return send(res, 200, { domain, schedules, layout: readLayout(), fetchedAt: Date.now() });
+    return send(res, 200, { domain, schedules, layout: readLayout(), away: tripStatus(), fetchedAt: Date.now() });
   }
   if (m === 'PUT' && p === '/api/layout') {
     const layout = cleanLayout(await readBody(req));
@@ -850,6 +1095,8 @@ async function api(req, res, url) {
     const saved = await restoreBackup(match[1]);
     return send(res, 200, { saved, backup: before });
   }
+
+  if (p.startsWith('/api/trips') && await tripsApi(req, res, m, p) !== false) return;
 
   return send(res, 404, { error: 'Unknown endpoint' });
 }

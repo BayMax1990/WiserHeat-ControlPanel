@@ -27,6 +27,7 @@ The first time, a short setup screen finds your hub on the network and walks you
 - Battery warnings before a radiator valve goes flat
 - Temperature graphs and boiler statistics that the hub doesn't keep itself
 - An automatic backup before every schedule change
+- Plan trips away, and the heating switches to Away and back by itself
 
 <table>
   <tr>
@@ -92,6 +93,20 @@ Each room card shows its current temperature and target, the humidity (in rooms 
 - **Boost** one room or the whole house by 1 to 3° for up to 3 hours
 - **Away**, **Eco** and **Comfort** mode switches
 - Smart plug on/off and auto/manual control
+
+### Plan your time away
+
+The hub's Away mode is just on or off. With **Trips**, next to the Away switch on the Rooms tab, you plan when you'll be away, and the panel switches Away mode on and off for you:
+
+- **Plan ahead.** Add as many trips as you like, each with the time you leave and the time you're back. Presets such as *This weekend* and *A week from tomorrow* fill in the times, or you can tap the days on a calendar.
+- **Come home to a warm house.** Away switches off a few hours before you're due back (three by default, or whatever suits you), so rooms are back on their schedules when you walk in.
+- **Weekly repeats.** For regular absences, such as every weekend at the caravan, set a trip to repeat each week, until a date or until you delete it.
+- **Plans change.** Tap **I'm home early** on the banner, or just switch Away off, and the trip ends.
+- **See it coming.** While you're away, a banner says until when. The time away is also shaded on the Schedules timeline, so you can see when the normal schedule won't run.
+
+During a trip, every room is held at the Away temperature from Settings. Boosts are cancelled when a trip starts. Smart plugs, and hot water on systems that have it, follow the hub's own Away behaviour.
+
+Trips run on the panel's server, so they happen on time even with the page closed. That works best where the panel is always running: Home Assistant, Docker, or the Linux service. On a desktop, the computer needs to be on. If it wasn't, the panel catches up as soon as it starts again.
 
 ### Know before the batteries die
 

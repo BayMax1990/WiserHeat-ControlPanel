@@ -461,6 +461,63 @@ body.onboarding .tabs { visibility: hidden; } /* keeps its space, so the theme b
 .phone-note { font-size: 13px; }
 .setting b > svg { width: 16px; height: 16px; vertical-align: -3px; color: var(--good); }
 
+/* ---------- Scheduled away (trips) ---------- */
+
+.trip-box { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trip-line { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.trip-line.on { color: var(--cold); }
+
+.trip-list { display: grid; gap: 8px; }
+.trip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 10px 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel);
+}
+.trip.on { border-color: color-mix(in oklab, var(--cold) 55%, var(--line)); background: color-mix(in oklab, var(--cold) 7%, var(--panel)); }
+.trip-ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--panel-2); color: var(--cold); flex: none; }
+.trip .grow { flex: 1; min-width: 0; }
+.trip b { font-weight: 650; }
+.trip small { display: block; color: var(--ink-2); font-size: 12.5px; }
+.trip-chip { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--panel-2); color: var(--ink-2); vertical-align: 1px; }
+.trip-chip.on { background: var(--cold); color: #fff; }
+.trip .icon-btn { width: 32px; height: 32px; flex: none; }
+.trip-empty { padding: 24px; }
+
+.trip-form .field input[type="date"], .trip-form .field input[type="time"], .trip-form .field select {
+  font: inherit; font-weight: 500; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--ink);
+}
+.trip-form .field input[type="text"] { font: inherit; font-weight: 500; }
+.trip-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.trip-when { display: grid; gap: 0; }
+.trip-when .field { display: flex; flex-direction: column; gap: 6px; }
+.trip-when .dt { display: flex; gap: 6px; }
+.trip-when .dt input[type="date"] { flex: 1; min-width: 0; }
+.trip-when .dt input[type="time"] { width: 120px; flex: none; }
+.trip-cal-hint { margin: -4px 0 6px; font-size: 12.5px; color: var(--ink-3); }
+.trip-cal { max-width: 320px; margin: 0 0 14px; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.cal-head .icon-btn { width: 30px; height: 30px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.cal-grid i { font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--ink-3); padding: 2px 0; }
+.cal-grid button {
+  aspect-ratio: 1; border: 0; border-radius: 9px; background: none; color: var(--ink); font-size: 13.5px; font-weight: 600; padding: 0;
+}
+.cal-grid button:hover:not(:disabled) { background: var(--panel-2); }
+.cal-grid button:disabled { color: var(--ink-3); opacity: .45; cursor: default; }
+.cal-grid button.today { box-shadow: inset 0 0 0 1px var(--ink-3); }
+.cal-grid button.in { background: color-mix(in oklab, var(--cold) 16%, transparent); border-radius: 0; }
+.cal-grid button.start, .cal-grid button.end { background: var(--cold); color: #fff; }
+.trip-check { display: flex; align-items: center; gap: 8px; font-weight: 600; margin: 0 0 12px; }
+.trip-check input { width: 18px; height: 18px; accent-color: var(--ink); }
+
+/* Away time on the Schedules timeline: the schedule doesn't run then. */
+.away-shade {
+  position: absolute; top: 0; bottom: 0; z-index: 1; overflow: hidden;
+  display: grid; place-items: center;
+  background: repeating-linear-gradient(135deg, rgb(61 109 176 / .55) 0 6px, rgb(61 109 176 / .3) 6px 12px);
+  box-shadow: inset 2px 0 0 var(--cold), inset -2px 0 0 var(--cold);
+}
+.away-shade em { font-style: normal; font-size: 11px; font-weight: 700; color: #fff; background: var(--cold); padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+
 /* ---------- Find my hub ---------- */
 
 .find-hub { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 2px 0 12px; }

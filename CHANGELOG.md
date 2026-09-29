@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+**Plan trips away**
+- Plan trips from the Rooms tab, next to the Away switch. The panel switches Away mode on as you leave and off before you're back, so the house is warm, three hours before by default.
+- Presets (*This weekend*, *Next weekend*, one or two weeks), date and time boxes, and a calendar.
+- Weekly repeats, until a date or until deleted.
+- A banner while you're away, with **I'm home early**; switching Away off by hand also ends the trip.
+- Away time is shaded on the Schedules timeline.
+- Runs on the server, so it works with the page closed. It catches up after the panel has been off, and keeps retrying if the hub can't be reached.
+
+**Phone app**
+- Add the panel to your phone's home screen. It opens on Rooms, with long-press shortcuts to Rooms, Schedules, Boost rooms and Batteries.
+- A friendly "Can't reach your heating" screen, on secure (https) addresses.
+- On phones, the tabs move to a bar at the bottom, and the header fits narrow screens.
+- **Settings → Add to your phone** shows the steps for your phone.
+
 ## 1.0.0
 
 The first release. It runs on Windows, macOS and Linux, as a Home Assistant app, with Docker, or as a Linux service.

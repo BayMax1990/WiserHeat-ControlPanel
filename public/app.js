@@ -208,6 +208,7 @@ async function refresh() {
     state.domain = s.domain;
     state.sched = s.schedules;
     if (s.layout && !layoutPending) state.layout = s.layout; // don't let a poll undo a drag that's still saving
+    state.away = s.away || null; // scheduled away: the trip under way, the next one, and any problem
     state.fetchedAt = Date.now();
     state.error = null;
     pruneDrafts();
@@ -308,6 +309,16 @@ function renderBanner() {
   } else if (state.error) {
     el.innerHTML = `<div class="banner error">${icon('wifi-off')}<p><strong>Can't reach the hub.</strong> ${esc(state.error)}</p>
       ${toSettings}<button class="btn" data-act="refresh">${icon('refresh-cw')}Try again</button></div>`;
+  } else if (state.away?.error) {
+    el.innerHTML = `<div class="banner error">${icon('plane')}<p><strong>Scheduled away.</strong> ${esc(state.away.error.message)}</p>
+      <button class="btn" data-act="trips">${icon('calendar-days')}Trips</button></div>`;
+  } else if (state.away?.active) {
+    const t = state.away.active;
+    const back = t.offAt < t.end
+      ? `Heating comes back on at ${fmtWhen(t.offAt)}, ready for your return at ${fmtWhen(t.end)}.`
+      : `Heating comes back on when you're back, at ${fmtWhen(t.end)}.`;
+    el.innerHTML = `<div class="banner">${icon('plane')}<p><strong>Away${t.name ? `: ${esc(t.name)}` : ''}.</strong> Every room is held at ${fmtT(sys().AwayModeSetPointLimit)} or below. ${back}</p>
+      <button class="btn" data-act="trip-home">${icon('house')}I'm home early</button></div>`;
   } else if (isAway()) {
     el.innerHTML = `<div class="banner">${icon('plane')}<p><strong>Away mode is on.</strong> Every room is held at ${fmtT(sys().AwayModeSetPointLimit)} or below, whatever its schedule says.</p>
       <button class="btn" data-act="away" data-on="0">${icon('house')}Turn off away mode</button></div>`;
@@ -393,10 +404,10 @@ function schedulesView() {
     } else {
       const days = daysOf(s.id);
       if (state.mode === 'day') {
-        band = `<button class="band" data-act="edit" data-room="${r.id}" data-day="${day}" data-k="band-${r.id}" aria-label="Edit ${esc(roomName(r))} on ${day}">${bandInner(toPoints(days[day]), carryInto(days, day), { day, roomLabel: roomName(r) })}</button>`;
+        band = `<button class="band" data-act="edit" data-room="${r.id}" data-day="${day}" data-k="band-${r.id}" aria-label="Edit ${esc(roomName(r))} on ${day}">${bandInner(toPoints(days[day]), carryInto(days, day), { day, roomLabel: roomName(r) })}${awayShade(day)}</button>`;
       } else {
         band = `<div class="week-strips">${DAYS.map((d) => `<div class="week-strip ${d === td ? 'today' : ''}"><span class="d">${SHORT[d]}${isDayEdited(s.id, d) ? '*' : ''}</span>
-          <button class="band" data-act="edit" data-room="${r.id}" data-day="${d}" aria-label="Edit ${esc(roomName(r))} on ${d}">${bandInner(toPoints(days[d]), carryInto(days, d), { minLabel: 6, day: d, roomLabel: roomName(r) })}${d === td ? '<i class="now-tick"></i>' : ''}</button></div>`).join('')}</div>`;
+          <button class="band" data-act="edit" data-room="${r.id}" data-day="${d}" aria-label="Edit ${esc(roomName(r))} on ${d}">${bandInner(toPoints(days[d]), carryInto(days, d), { minLabel: 6, day: d, roomLabel: roomName(r) })}${awayShade(d)}${d === td ? '<i class="now-tick"></i>' : ''}</button></div>`).join('')}</div>`;
       }
     }
     const status = `${t == null ? 'No reading' : fmtT(t) + ' now'}, target ${fmtT(r.CurrentSetPoint)}${heating ? ` <span class="hot">${icon('flame')}${r.PercentageDemand}%</span>` : ''}`;
@@ -526,6 +537,7 @@ function roomsView() {
       <div><b>${firing ? 'Boiler firing' : 'Boiler idle'}</b><small>${ch.PercentageDemand ? `${ch.PercentageDemand}% demand` : 'No room is calling for heat'}</small></div>
     </div>
     ${switchHTML('away', isAway(), 'plane', 'Away', `Holds every room at ${fmtT(s.AwayModeSetPointLimit)} or below`)}
+    ${tripLine()}
     ${switchHTML('eco', !!s.EcoModeEnabled, 'leaf', 'Eco', 'Lets the hub turn heating off early when a room will coast to temperature')}
     ${switchHTML('comfort', !!s.ComfortModeEnabled, 'sun', 'Comfort', 'Pre-heats so rooms reach their target by the scheduled time')}
     <span class="strip-sep"></span>
@@ -1209,6 +1221,299 @@ function diagnosticsView() {
   if (!state.diag) { state.diag = {}; loadDiagnostics(); }
   return `<nav class="diag-nav" aria-label="Diagnostics sections">${DIAG_SECTIONS.map(([id, ico, label]) => `<a class="chip" href="#${id}">${icon(ico)}${label}</a>`).join('')}</nav>
     ${diagHealth()}${diagMesh()}${diagEnergy()}${diagBoiler()}${diagTidy()}${diagValves()}${diagInfo()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled away ("trips"). The server switches the hub's Away mode on as you leave and off before
+// you're back, so these work with the page closed. Times are in this browser's (the home's) time zone.
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const isoDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const isoTime = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const atTime = (d, h, m = 0) => { const x = new Date(d); x.setHours(h, m, 0, 0); return x; };
+
+// "Fri 17:30" within the coming week, otherwise "Fri 3 Oct 17:30".
+function fmtWhen(ms, long = false) {
+  const soon = ms > Date.now() - 864e5 && ms < Date.now() + 6 * 864e5;
+  const opts = { weekday: 'short', hour: '2-digit', minute: '2-digit' };
+  if (long || !soon) Object.assign(opts, { day: 'numeric', month: 'short' });
+  return new Date(ms).toLocaleString('en-GB', opts).replace(',', '');
+}
+const fmtDay = (ms) => new Date(ms).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+const warmupText = (min) => (!min ? "Heating back on when you're back"
+  : `Heating back on ${min % 60 ? `${min} minutes` : `${min / 60} ${min === 60 ? 'hour' : 'hours'}`} before you're back`);
+
+// Next to the Away switch on Rooms.
+function tripLine() {
+  const aw = state.away;
+  const line = aw?.active ? `<span class="trip-line on">Away until ${fmtWhen(aw.active.end)}</span>`
+    : aw?.next ? `<span class="trip-line">Next trip: ${fmtWhen(aw.next.start)}</span>` : '';
+  return `<span class="trip-box">${line}<button class="btn small" data-act="trips">${icon('calendar-days')}${aw?.active || aw?.next ? 'Trips' : 'Plan a trip'}</button></span>`;
+}
+
+// The away time shaded on a room's bar in Schedules. Each weekday means its next date, today included.
+function awayShade(day) {
+  const periods = state.away?.periods;
+  if (!periods?.length) return '';
+  const now = new Date();
+  const ahead = (DAYS.indexOf(day) - (now.getDay() + 6) % 7 + 7) % 7;
+  const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ahead).getTime();
+  const d1 = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ahead + 1).getTime();
+  return periods.filter((p) => p.offAt > d0 && p.start < d1).map((p) => {
+    const a = Math.max(p.start, d0) - d0, b = Math.min(p.offAt, d1) - d0, span = d1 - d0;
+    const tip = `<b>${esc(p.name || 'Away')}</b><br>Away from ${fmtWhen(p.start)} until ${fmtWhen(p.offAt)}. Rooms are held at ${fmtT(sys().AwayModeSetPointLimit)} or below, so this schedule doesn't run then.`;
+    return `<span class="away-shade" style="left:${(a / span) * 100}%;width:${((b - a) / span) * 100}%" data-tip="${esc(tip)}"><em>Away</em></span>`;
+  }).join('');
+}
+
+let tripUI = null; // the Trips window: { mode: 'list' | 'form', editId, cal: first of the shown month, pick: 'start' | 'end' }
+
+async function loadTrips() {
+  const r = await api('GET', '/api/trips');
+  state.trips = r.trips;
+  state.away = r.status;
+}
+
+async function openTrips() {
+  tripUI = { mode: 'list' };
+  state.trips ??= [];
+  openModal(tripsHTML(), onTripAction);
+  try { await loadTrips(); } catch (e) { toast(e.message, true); }
+  renderTrips();
+}
+
+function renderTrips() {
+  if (!$('#modal').open || !tripUI) return;
+  setDialogHTML($('#modal'), tripsHTML());
+  if (tripUI.mode === 'form') fillTripForm();
+}
+
+function tripsHTML() {
+  if (tripUI.mode === 'form') return tripFormHTML();
+  const list = state.trips || [];
+  const items = list.map((t) => {
+    const u = t.upcoming;
+    const chip = t.active ? '<span class="trip-chip on">Away now</span>' : u && state.away?.next?.tripId === t.id ? '<span class="trip-chip">Next</span>' : '';
+    const when = u ? `${fmtWhen(u.start, true)} → ${fmtWhen(u.end, true)}` : 'Finished';
+    const repeat = t.repeat ? ` · Every week${t.repeat.until ? `, until ${fmtDay(t.repeat.until)}` : ''}` : '';
+    return `<div class="trip ${t.active ? 'on' : ''}">
+      <div class="trip-ico">${icon(t.repeat ? 'refresh-cw' : 'plane')}</div>
+      <div class="grow"><b>${esc(t.name || 'Trip')}</b>${chip}
+        <small>${when}</small>
+        <small>${warmupText(t.warmupMinutes)}${repeat}</small></div>
+      ${t.active ? `<button class="btn small" data-md="trip-home">${icon('house')}I'm home early</button>` : ''}
+      <button class="icon-btn" data-md="trip-edit" data-id="${esc(t.id)}" aria-label="Change ${esc(t.name || 'this trip')}">${icon('pencil')}</button>
+      <button class="icon-btn danger" data-md="trip-del" data-id="${esc(t.id)}" aria-label="Delete ${esc(t.name || 'this trip')}">${icon('trash')}</button>
+    </div>`;
+  }).join('');
+  return `<div class="modal-body">
+      <h2>Trips</h2>
+      <p>Plan when you'll be away. The panel switches Away mode on as you leave, holding every room at ${fmtT(sys().AwayModeSetPointLimit)} or below (set in Settings), and off again before you're back so the house is warm. Boosts are cancelled when a trip starts.</p>
+      ${items ? `<div class="trip-list">${items}</div>` : '<div class="empty trip-empty">No trips planned.</div>'}
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-md="cancel">Close</button>
+      <button class="btn primary" data-md="trip-new">${icon('plus')}Plan a trip</button>
+    </div>`;
+}
+
+const PRESETS = [['weekend', 'This weekend'], ['nextweekend', 'Next weekend'], ['week', 'A week from tomorrow'], ['fortnight', 'Two weeks from tomorrow']];
+const WARMUPS = [[0, "When I'm back"], [60, '1 hour before'], [120, '2 hours before'], [180, '3 hours before'], [240, '4 hours before'], [360, '6 hours before'], [720, '12 hours before']];
+
+function tripFormHTML() {
+  const editing = tripUI.editId && (state.trips || []).find((t) => t.id === tripUI.editId);
+  return `<div class="modal-body trip-form">
+      <h2>${editing ? 'Change trip' : 'Plan a trip'}</h2>
+      <label class="field">Name <small>Optional</small><input type="text" id="tName" maxlength="40" placeholder="For example, Christmas at Mum's"></label>
+      <div class="trip-presets">${PRESETS.map(([k, l]) => `<button class="btn small" data-md="trip-preset" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="trip-when">
+        <div class="field">Leaving<span class="dt"><input type="date" id="tStartD" aria-label="Leaving date"><input type="time" id="tStartT" step="900" aria-label="Leaving time"></span></div>
+        <div class="field">Back<span class="dt"><input type="date" id="tEndD" aria-label="Return date"><input type="time" id="tEndT" step="900" aria-label="Return time"></span></div>
+      </div>
+      <p class="trip-cal-hint">Or tap the day you leave on the calendar, then the day you're back.</p>
+      <div id="tripCal" class="trip-cal"></div>
+      <label class="field">Warm the house up<select id="tWarm">${WARMUPS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>
+      <label class="trip-check"><input type="checkbox" id="tRepeat"> Repeat every week</label>
+      <label class="field" id="tUntilWrap">Until <small>Leave it empty to repeat until you delete the trip</small><input type="date" id="tUntil"></label>
+      <p class="setup-error" id="tripErr" role="alert"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-md="trip-list">${icon('chevron-left')}Back</button>
+      <button class="btn primary" data-md="trip-save">${icon('check')}${editing ? 'Save changes' : 'Save trip'}</button>
+    </div>`;
+}
+
+// Puts the trip being changed (or sensible blanks) into the form, then draws the calendar.
+function fillTripForm() {
+  const t = tripUI.editId && (state.trips || []).find((x) => x.id === tripUI.editId);
+  const set = (id, v) => { const el = $(`#${id}`); if (el) el.value = v; };
+  if (t) {
+    const s = new Date(t.upcoming?.start ?? t.start), e = new Date(t.upcoming?.end ?? t.end);
+    set('tName', t.name || '');
+    set('tStartD', isoDate(s)); set('tStartT', isoTime(s));
+    set('tEndD', isoDate(e)); set('tEndT', isoTime(e));
+    set('tWarm', String(t.warmupMinutes ?? 180));
+    $('#tRepeat').checked = !!t.repeat;
+    set('tUntil', t.repeat?.until ? isoDate(new Date(t.repeat.until)) : '');
+    tripUI.cal = new Date(s.getFullYear(), s.getMonth(), 1);
+  } else {
+    set('tWarm', '180');
+    set('tStartT', '17:00'); set('tEndT', '18:00');
+    tripUI.cal ??= new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  }
+  tripUI.pick = 'start';
+  syncTripForm();
+}
+
+function syncTripForm() {
+  $('#tUntilWrap').hidden = !$('#tRepeat').checked;
+  $('#tripCal').innerHTML = calHTML();
+}
+
+function calHTML() {
+  const m = tripUI.cal;
+  const y = m.getFullYear(), mo = m.getMonth();
+  const lead = (new Date(y, mo, 1).getDay() + 6) % 7; // weeks start on Monday
+  const days = new Date(y, mo + 1, 0).getDate();
+  const today = isoDate(new Date());
+  const s = $('#tStartD')?.value || '', e = $('#tEndD')?.value || '';
+  let cells = '<span></span>'.repeat(lead);
+  for (let d = 1; d <= days; d++) {
+    const iso = `${y}-${pad2(mo + 1)}-${pad2(d)}`;
+    const cls = [iso === s && 'start', iso === e && 'end', s && e && iso > s && iso < e && 'in', iso === today && 'today'].filter(Boolean).join(' ');
+    cells += `<button type="button" class="${cls}" data-md="cal-day" data-date="${iso}" ${iso < today ? 'disabled' : ''}>${d}</button>`;
+  }
+  const title = m.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  return `<div class="cal-head">
+      <button type="button" class="icon-btn" data-md="cal-prev" aria-label="Previous month">${icon('chevron-left')}</button>
+      <b>${title}</b>
+      <button type="button" class="icon-btn" data-md="cal-next" aria-label="Next month">${icon('chevron-right')}</button>
+    </div>
+    <div class="cal-grid">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d) => `<i>${d}</i>`).join('')}${cells}</div>`;
+}
+
+function applyPreset(kind) {
+  const now = new Date();
+  let s, e;
+  if (kind === 'weekend' || kind === 'nextweekend') {
+    const dow = (now.getDay() + 6) % 7; // Monday 0 … Sunday 6
+    let fri = atTime(addDays(now, 4 - dow), 17);
+    let sun = atTime(addDays(fri, 2), 18);
+    if (sun <= now) { fri = addDays(fri, 7); sun = addDays(sun, 7); } // this weekend's over
+    if (kind === 'nextweekend') { fri = addDays(fri, 7); sun = addDays(sun, 7); }
+    s = fri;
+    if (s < now) { s = new Date(now); s.setMinutes(Math.ceil((s.getMinutes() + 1) / 15) * 15, 0, 0); } // already under way: from now
+    e = sun;
+  } else {
+    s = atTime(addDays(now, 1), 9);
+    e = atTime(addDays(now, 1 + (kind === 'week' ? 7 : 14)), 18);
+  }
+  $('#tStartD').value = isoDate(s); $('#tStartT').value = isoTime(s);
+  $('#tEndD').value = isoDate(e); $('#tEndT').value = isoTime(e);
+  tripUI.cal = new Date(s.getFullYear(), s.getMonth(), 1);
+  tripUI.pick = 'start';
+  syncTripForm();
+}
+
+function pickCalDay(iso) {
+  const s = $('#tStartD').value;
+  if (tripUI.pick === 'end' && s && iso >= s) {
+    $('#tEndD').value = iso;
+    if (!$('#tEndT').value) $('#tEndT').value = '18:00';
+    tripUI.pick = 'start';
+  } else {
+    $('#tStartD').value = iso;
+    if (!$('#tStartT').value) $('#tStartT').value = '17:00';
+    if ($('#tEndD').value && $('#tEndD').value < iso) $('#tEndD').value = '';
+    tripUI.pick = 'end';
+  }
+  syncTripForm();
+}
+
+async function saveTrip() {
+  const err = $('#tripErr');
+  const v = (id) => $(`#${id}`).value;
+  const at = (d, t) => (d && t ? new Date(`${d}T${t}`).getTime() : NaN);
+  const start = at(v('tStartD'), v('tStartT')), end = at(v('tEndD'), v('tEndT'));
+  if (Number.isNaN(start) || Number.isNaN(end)) { err.textContent = 'Choose the date and time you leave, and when you\'re back.'; return; }
+  const repeat = $('#tRepeat').checked ? { until: v('tUntil') ? new Date(`${v('tUntil')}T23:59`).getTime() : null } : null;
+  const body = {
+    name: v('tName').trim(), start, end, warmupMinutes: Number(v('tWarm')), repeat,
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  };
+  const btn = $('#modal [data-md="trip-save"]');
+  btn.disabled = true;
+  try {
+    const r = tripUI.editId ? await api('PUT', `/api/trips/${tripUI.editId}`, body) : await api('POST', '/api/trips', body);
+    state.trips = r.trips;
+    state.away = r.status;
+    toast(r.status.active && r.status.active.start <= Date.now() && !tripUI.editId ? 'Trip saved. It has started, so Away is on now.' : 'Trip saved');
+    tripUI = { mode: 'list' };
+    renderTrips();
+    renderMain();
+    renderBanner();
+    refresh();
+  } catch (e) {
+    err.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+async function tripHomeEarly() {
+  try {
+    const r = await api('POST', '/api/trips/home');
+    state.trips = r.trips;
+    state.away = r.status;
+    toast("Welcome home. Away is off, and rooms are back on their schedules.");
+  } catch (e) {
+    toast(e.message, true);
+  }
+  renderTrips();
+  await settle();
+  await refresh();
+}
+
+async function deleteTrip(id) {
+  const t = (state.trips || []).find((x) => x.id === id);
+  if (!t) return;
+  const msg = t.active ? `"${t.name || 'This trip'}" is under way. Deleting it switches Away off now. Delete it?`
+    : `Delete ${t.name ? `"${t.name}"` : 'this trip'}${t.repeat ? ' and all its repeats' : ''}?`;
+  if (!confirm(msg)) return;
+  try {
+    const r = await api('DELETE', `/api/trips/${id}`);
+    state.trips = r.trips;
+    state.away = r.status;
+    toast('Trip deleted');
+  } catch (e) {
+    toast(e.message, true);
+  }
+  renderTrips();
+  renderMain();
+  renderBanner();
+  if (t.active) { await settle(); await refresh(); }
+}
+
+function onTripAction(act, el) {
+  switch (act) {
+    case 'trip-new': tripUI = { mode: 'form', editId: null }; return renderTrips();
+    case 'trip-edit': tripUI = { mode: 'form', editId: el.dataset.id }; return renderTrips();
+    case 'trip-list': tripUI = { mode: 'list' }; return renderTrips();
+    case 'trip-save': return saveTrip();
+    case 'trip-del': return deleteTrip(el.dataset.id);
+    case 'trip-home': return tripHomeEarly();
+    case 'trip-preset': return applyPreset(el.dataset.v);
+    case 'cal-day': return pickCalDay(el.dataset.date);
+    case 'cal-prev': case 'cal-next':
+      tripUI.cal = new Date(tripUI.cal.getFullYear(), tripUI.cal.getMonth() + (act === 'cal-next' ? 1 : -1), 1);
+      return syncTripForm();
+    case 'change': // a form field changed
+      if (tripUI?.mode === 'form') {
+        if (el.id === 'tStartD' && el.value) tripUI.cal = new Date(`${el.value}T12:00`);
+        if (tripUI.cal) tripUI.cal = new Date(tripUI.cal.getFullYear(), tripUI.cal.getMonth(), 1);
+        syncTripForm();
+      }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2742,6 +3047,8 @@ document.addEventListener('click', (e) => {
     case 'set-choice': return saveSettings({ [b.dataset.key]: Number(b.dataset.v) }, 'Saved');
     case 'set-test': return testHubConnection();
     case 'pick-icon': return openIconPicker(Number(b.dataset.room));
+    case 'trips': return openTrips();
+    case 'trip-home': return tripHomeEarly();
     case 'find-hub': return findHub();
     case 'use-hub': return useHub(b.dataset.ip);
     case 'setup-next': return setupNext();
@@ -2919,7 +3226,8 @@ ed.addEventListener('pointercancel', onHandleUp);
 ed.addEventListener('keydown', onHandleKey);
 ed.addEventListener('cancel', (e) => { e.preventDefault(); closeEditor(); });
 $('#modal').addEventListener('click', onModalClick);
-$('#modal').addEventListener('change', (e) => { if (e.target.closest('.room-pick')) modalHandler?.('pick'); });
+$('#modal').addEventListener('change', (e) => { if (e.target.closest('.room-pick')) modalHandler?.('pick'); else modalHandler?.('change', e.target); });
+$('#modal').addEventListener('close', () => { tripUI = null; }); // the Trips window is gone, whichever way it was closed
 $('#modal').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.matches('input[type="text"], input[type="password"]')) { e.preventDefault(); $('#modal .modal-foot button:last-child')?.click(); }
 });

@@ -6,7 +6,8 @@ See and control your whole home's Drayton Wiser heating on one screen:
 - change several rooms at once, and sort them into groups such as Upstairs and Downstairs;
 - boost rooms, switch modes, and control smart plugs;
 - battery warnings before a radiator valve goes flat;
-- temperature graphs and boiler statistics that the hub doesn't keep itself.
+- temperature graphs and boiler statistics that the hub doesn't keep itself;
+- trips: plan when you're away, and Away mode switches on and off by itself, warming the house before you're back.
 
 ## Getting started
 
@@ -22,6 +23,7 @@ Everything can be changed later under the cog at the top of the panel.
 - **Backups.** The panel's settings, history, room layout and schedule backups are kept in the app's own folder, so Home Assistant backups include them.
 - **The Wiser integration.** This app works alongside a Wiser integration in Home Assistant. Both talk to the hub directly.
 - **History.** Graphs fill in while the app runs, as the hub keeps no history of its own.
+- **Trips.** Planned trips are run by the app itself, so they switch Away on and off on time with the panel closed. If Home Assistant was off at a planned time, the app catches up when it starts.
 
 This is an independent project. It isn't made or supported by Drayton, Wiser or Schneider Electric. It uses the hub's local interface, which isn't officially documented, so a hub firmware update could change how things behave.
 
