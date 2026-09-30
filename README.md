@@ -37,22 +37,22 @@ The first time, a short setup screen finds your hub on the network and walks you
       <br><sub><b>Schedules.</b> Every room's day on one timeline, in your own groups.</sub>
     </td>
     <td width="33%" align="center" valign="top">
-      <a href="docs/Rooms.png"><img src="docs/Rooms.png" alt="The Rooms tab: a card for each room with its temperature, target, mode, a 24-hour graph and a Boost button"></a>
-      <br><sub><b>Rooms.</b> Live temperatures, modes, boosts and 24-hour graphs.</sub>
+      <a href="docs/HotWater.png"><img src="docs/HotWater.png" alt="The Rooms tab on a system with hot water and two heating zones: a hot water card with today's schedule and Auto, On, Off and Boost buttons, above a card for each room with its temperature, target, mode, a 24-hour graph and a Boost button"></a>
+      <br><sub><b>Hot water, zones and rooms.</b> Live temperatures, modes, boosts and graphs, with hot water and heating zones.</sub>
     </td>
     <td width="33%" align="center" valign="top">
-      <a href="docs/Batteries.png"><img src="docs/Batteries.png" alt="The Batteries tab: every radiator valve and thermostat, worst first, with battery level, voltage, signal and status"></a>
-      <br><sub><b>Batteries.</b> Every valve and thermostat, worst first.</sub>
+      <a href="docs/PlanaTrip.png"><img src="docs/PlanaTrip.png" alt="The Plan a trip window: a name, presets such as This weekend, leaving and back dates and times, a calendar with the days away highlighted, how long before your return to warm the house, and a weekly repeat option"></a>
+      <br><sub><b>Plan a trip.</b> Away mode on as you leave, and a warm house when you're back.</sub>
     </td>
   </tr>
   <tr>
     <td width="33%" align="center" valign="top">
-      <a href="docs/HotWater.png"><img src="docs/HotWater.png" alt="The Rooms tab on a system with hot water and two heating zones: a hot water card with today's schedule, Auto, On and Off buttons and a Boost button, above the room cards"></a>
-      <br><sub><b>Hot water and zones.</b> Control hot water, and see which zones are firing.</sub>
-    </td>
-    <td width="33%" align="center" valign="top">
       <a href="docs/LightsandBlinds.png"><img src="docs/LightsandBlinds.png" alt="The Lights and blinds tab: cards for a hall light, a dimmable lounge lamp and a kitchen blind, each with today's schedule, Auto or Manual, and on, off, brightness or position controls"></a>
       <br><sub><b>Lights and blinds.</b> Switch, dim, open and close, with schedules.</sub>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/Batteries.png"><img src="docs/Batteries.png" alt="The Batteries tab: every radiator valve and thermostat, worst first, with battery level, voltage, signal and status"></a>
+      <br><sub><b>Batteries.</b> Every valve and thermostat, worst first.</sub>
     </td>
     <td width="33%" align="center" valign="top">
       <a href="docs/RadioNetwork.png"><img src="docs/RadioNetwork.png" alt="The radio network in Diagnostics: the hub, the smart plugs that relay signals, and which valves, thermostats, lights, blinds and sensors talk through each one"></a>
