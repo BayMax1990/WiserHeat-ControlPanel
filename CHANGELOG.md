@@ -24,6 +24,9 @@
 - On phones, the tabs move to a bar at the bottom, and the header fits narrow screens.
 - **Settings → Add to your phone** shows the steps for your phone.
 
+**Fixes**
+- The small charts in Diagnostics (Wi-Fi signal and power use) no longer show faint vertical stripes.
+
 ## 1.0.0
 
 The first release. It runs on Windows, macOS and Linux, as a Home Assistant app, with Docker, or as a Linux service.

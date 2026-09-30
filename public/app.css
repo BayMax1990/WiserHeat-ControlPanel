@@ -874,6 +874,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 16px; }
 .mini-line { position: relative; }
 .mini-line svg { width: 100%; height: 100%; overflow: visible; }
 .mini-line path { fill: none; stroke: var(--ink); stroke-width: 2; }
+.mini-line rect { stroke: none; } /* the hover strips, which would otherwise pick up the icons' outline */
 .mini-line rect:hover { fill: color-mix(in oklab, var(--ink) 6%, transparent); }
 .mini-line span { position: absolute; right: 0; font-size: 11px; color: var(--ink-3); background: var(--panel); padding: 0 3px; pointer-events: none; }
 .mini-line .ml-hi { top: -6px; }

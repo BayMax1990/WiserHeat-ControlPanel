@@ -45,6 +45,20 @@ The first time, a short setup screen finds your hub on the network and walks you
       <br><sub><b>Batteries.</b> Every valve and thermostat, worst first.</sub>
     </td>
   </tr>
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/HotWater.png"><img src="docs/HotWater.png" alt="The Rooms tab on a system with hot water and two heating zones: a hot water card with today's schedule, Auto, On and Off buttons and a Boost button, above the room cards"></a>
+      <br><sub><b>Hot water and zones.</b> Control hot water, and see which zones are firing.</sub>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/LightsandBlinds.png"><img src="docs/LightsandBlinds.png" alt="The Lights and blinds tab: cards for a hall light, a dimmable lounge lamp and a kitchen blind, each with today's schedule, Auto or Manual, and on, off, brightness or position controls"></a>
+      <br><sub><b>Lights and blinds.</b> Switch, dim, open and close, with schedules.</sub>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <a href="docs/RadioNetwork.png"><img src="docs/RadioNetwork.png" alt="The radio network in Diagnostics: the hub, the smart plugs that relay signals, and which valves, thermostats, lights, blinds and sensors talk through each one"></a>
+      <br><sub><b>Radio network.</b> Which plug relays for which device, and weak links.</sub>
+    </td>
+  </tr>
 </table>
 
 <p align="center"><sub>Click a screenshot to see it full size.</sub></p>
