@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 **Plan trips away**
 - Plan trips from the Rooms tab, next to the Away switch. The panel switches Away mode on as you leave and off before you're back, so the house is warm, three hours before by default.
@@ -9,6 +9,14 @@
 - A banner while you're away, with **I'm home early**; switching Away off by hand also ends the trip.
 - Away time is shaded on the Schedules timeline.
 - Runs on the server, so it works with the page closed. It catches up after the panel has been off, and keeps retrying if the hub can't be reached.
+
+**Hot water, zones, lights, blinds and more** *(new: tested against a simulated hub, feedback welcome)*
+- Hot water: a card on Rooms (Auto, On, Off and boost), a row on the Schedules timeline, a schedule editor, and a Diagnostics section.
+- Heating zones: shown in the header and on Rooms; Diagnostics shows each zone's firing time and rooms.
+- Electric heaters: power on the room's card; energy and cost in Diagnostics. Underfloor heating controllers: relays, floor limits and condensation warnings.
+- Lights and blinds: a new tab, shown only when the hub has them, with controls and schedule editing (including sunrise and sunset).
+- Batteries lists every battery device, including smoke alarms, window and door sensors, and button panels.
+- Each of these only appears if your hub has the equipment.
 
 **Phone app**
 - Add the panel to your phone's home screen. It opens on Rooms, with long-press shortcuts to Rooms, Schedules, Boost rooms and Batteries.

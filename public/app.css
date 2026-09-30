@@ -1098,6 +1098,78 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
 .empty svg, .loading svg { width: 36px; height: 36px; color: var(--ink-3); }
 .loading svg { animation: flicker 1.6s ease-in-out infinite; color: var(--warm); }
 
+/* ---------- Other Wiser equipment: hot water, lights, blinds, zones ---------- */
+
+.new-tag {
+  display: inline-flex; align-items: center; vertical-align: middle;
+  margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+  font: 700 10px/1.6 var(--body); letter-spacing: .05em; text-transform: uppercase;
+  background: color-mix(in oklab, var(--focus) 14%, var(--panel)); color: var(--focus);
+  cursor: help;
+}
+.lib-intro > .new-tag:first-child { margin: 0 6px 0 0; }
+
+/* On/off bands (hot water) and level bands (lights, blinds). */
+.seg-fill.onoff.on { background: #2a93ad; color: #fff; }
+.seg-fill.level.on { background: color-mix(in oklab, #e8b339 calc(30% + var(--lvl, 1) * 60%), var(--panel-2)); color: var(--ink); }
+.seg-fill.level.shutter.on { background: color-mix(in oklab, var(--cold) calc(25% + var(--lvl, 1) * 55%), var(--panel-2)); }
+.seg-fill.level.shutter.on, .seg-fill.level.dim.on { color: var(--ink); }
+
+.hw-grid { margin-bottom: 22px; }
+.hw-card.on .room-ico { background: color-mix(in oklab, #2a93ad 18%, var(--panel)); color: #2a93ad; }
+.dev-card.on .room-ico { background: color-mix(in oklab, #e6b400 22%, var(--panel)); color: #9a7400; }
+.hw-state, .dev-state { white-space: nowrap; }
+.dev-state { font-size: 40px; }
+.dev-state small { font-size: 18px; letter-spacing: 0; }
+.card .mini-band { height: 24px; border-radius: 6px; cursor: pointer; }
+.card .mini-band .seg-fill { font-size: 11px; border-right-width: 1.5px; }
+.card-note { margin: -8px 0 0; font-size: 12px; color: var(--ink-3); }
+.hw-row .check-space { width: 18px; flex: none; }
+.mode-seg button[aria-pressed="true"][data-v="on" i] { background: #2a93ad; color: #fff; }
+
+.dev-buttons { display: flex; gap: 6px; }
+.dev-range { flex: 1 1 100%; display: flex; align-items: center; gap: 10px; color: var(--ink-2); }
+.dev-range svg { width: 16px; height: 16px; flex: none; }
+.dev-range input { flex: 1; accent-color: var(--ink); }
+
+.dev-rows { display: grid; gap: 8px; margin-bottom: 12px; }
+.dev-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+}
+.dev-row > span { color: var(--ink-2); font-size: 13.5px; }
+.dev-row select, .dev-row input {
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel-2); color: var(--ink); font: inherit;
+}
+.dev-row input[hidden] { display: none; }
+.dev-row .icon-btn { margin-left: auto; }
+.lvl-input { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 13.5px; }
+.lvl-input input { width: 72px; }
+.days-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 4px; }
+.days-presets { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; margin-left: -8px; }
+
+.hbars.relays .hbar { grid-template-columns: 64px 1fr 44px; }
+.zone-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.zone {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel-2); color: var(--ink-2); font-size: 13px;
+}
+.zone b { display: flex; align-items: center; gap: 6px; font: 650 15px var(--display); color: var(--ink); }
+.zone b svg { width: 16px; height: 16px; color: var(--ink-3); }
+.zone small { color: var(--ink-3); font-size: 12px; }
+.zone.on { border-color: color-mix(in oklab, var(--warm) 45%, var(--line)); background: color-mix(in oklab, var(--warm) 7%, var(--panel)); }
+.zone.on b svg { color: var(--warm); animation: flicker 1.8s ease-in-out infinite; }
+
+.tabs .short { display: none; }
+/* Five tabs on a laptop-sized screen: a shorter label and tighter tabs, so the title keeps its room. */
+@media (min-width: 641px) and (max-width: 1500px) {
+  .tabs button { padding: 8px 12px; }
+  .tabs .long { display: none; }
+  .tabs .short { display: inline; }
+}
+
 /* ---------- Motion ---------- */
 
 @keyframes flicker { 0%, 100% { transform: scale(1) rotate(0); } 30% { transform: scale(1.06, .96) rotate(-2deg); } 60% { transform: scale(.97, 1.05) rotate(1.5deg); } }
@@ -1153,6 +1225,8 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
     font-size: 11.5px; font-weight: 600; border-radius: 12px;
   }
   .tabs button svg { width: 22px; height: 22px; padding: 3px 16px; box-sizing: content-box; border-radius: 999px; }
+  .tabs .long { display: none; }
+  .tabs .short { display: inline; }
   .tabs button[aria-selected="true"] { background: none; box-shadow: none; color: var(--ink); }
   .tabs button[aria-selected="true"] svg { background: color-mix(in oklab, var(--warm) 18%, transparent); color: var(--warm-ink); }
   body { padding-bottom: calc(96px + 64px + env(safe-area-inset-bottom)); }

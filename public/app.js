@@ -281,13 +281,17 @@ function renderHeader() {
     if (state.settings && !hubConfigured()) $('#systemLine').textContent = 'Not connected to a hub yet.';
     return;
   }
-  const ch = d.HeatingChannel?.[0];
-  const firing = ch?.HeatingRelayState === 'On';
+  const firing = boilerFiring();
   flame.classList.toggle('on', firing);
+  $('#tab-lights').hidden = !hasLightsOrBlinds();
   const count = d.Room?.length || 0;
-  $('#systemLine').textContent = firing
-    ? `Boiler firing at ${ch.PercentageDemand}% demand. ${count} rooms.`
-    : `Boiler idle. ${count} rooms on the hub.`;
+  const hw = hotWater() ? ` Hot water ${hwOn() ? 'on' : 'off'}.` : '';
+  const zs = zones(), zOn = zs.filter((c) => c.HeatingRelayState === 'On').length;
+  const line = $('#systemLine');
+  line.textContent = firing
+    ? `Boiler firing${zs.length > 1 ? ` in ${zOn} of ${zs.length} zones` : ` at ${boilerDemand()}% demand`}.${hw} ${count} rooms.`
+    : `Boiler idle.${hw} ${count} rooms on the hub.`;
+  line.title = zs.length > 1 ? zonesSummary() : '';
   updateNow();
 }
 
@@ -355,6 +359,7 @@ function renderMain() {
     return;
   } else {
     const views = { rooms: roomsView, batteries: batteriesView, diagnostics: diagnosticsView };
+    if (hasLightsOrBlinds()) views.lights = lightsView; // otherwise the tab is hidden, and Schedules shows instead
     main.innerHTML = (views[state.view] || schedulesView)();
   }
   if (k) $(`[data-k="${CSS.escape(k)}"]`, main)?.focus();
@@ -452,6 +457,7 @@ function schedulesView() {
         <div class="label-col"><input type="checkbox" class="room-check" data-act="select-all" data-k="sel-all" ${allSel ? 'checked' : ''} aria-label="Select all rooms">${state.mode === 'day' ? esc(day) : 'Each room, Monday to Sunday'}</div>
         <div class="axis ${state.mode === 'week' ? 'week' : ''}">${axisTicks()}${state.mode === 'day' && isToday ? '<span class="now-tag"></span>' : ''}</div>
       </div>
+      ${hwTimelineRow()}
       ${layoutSections(row, { select: true })}
     </div>
     <div class="legend">
@@ -525,16 +531,18 @@ function overrideInfo(r) {
 
 function roomsView() {
   const d = state.domain;
-  const ch = d.HeatingChannel?.[0] || {};
-  const firing = ch.HeatingRelayState === 'On';
+  const firing = boilerFiring();
   const s = sys();
   const anyOverride = d.Room.some((r) => overrideInfo(r));
   const plugs = d.SmartPlug || [];
+  // Several heating zones: say which are firing.
+  const boilerSub = zones().length > 1 ? `${zonesSummary()} ${NEW_TAG}`
+    : boilerDemand() ? `${boilerDemand()}% demand` : 'No room is calling for heat';
 
   const strip = `<div class="system-strip">
     <div class="boiler ${firing ? 'on' : ''}">
       <div class="flame-ico">${icon('flame')}</div>
-      <div><b>${firing ? 'Boiler firing' : 'Boiler idle'}</b><small>${ch.PercentageDemand ? `${ch.PercentageDemand}% demand` : 'No room is calling for heat'}</small></div>
+      <div><b>${firing ? 'Boiler firing' : 'Boiler idle'}</b><small>${boilerSub}</small></div>
     </div>
     ${switchHTML('away', isAway(), 'plane', 'Away', `Holds every room at ${fmtT(s.AwayModeSetPointLimit)} or below`)}
     ${tripLine()}
@@ -565,7 +573,8 @@ function roomsView() {
       </div>`;
     }).join('')}</div>` : '';
 
-  return strip + `<div class="card-layout lay-root">${layoutSections(cardHTML, { bodyClass: 'room-grid' })}</div>` + plugHTML;
+  const hw = hotWater() ? `<div class="room-grid hw-grid">${hotWaterCard()}</div>` : '';
+  return strip + hw + `<div class="card-layout lay-root">${layoutSections(cardHTML, { bodyClass: 'room-grid' })}</div>` + plugHTML;
 }
 
 function switchHTML(key, on, ico, label, tip) {
@@ -596,6 +605,12 @@ function cardHTML(r) {
   const side = [];
   if (stat?.MeasuredHumidity != null) side.push(`<span data-tip="Humidity from the room thermostat">${icon('droplets')}${stat.MeasuredHumidity}% humidity</span>`);
   if (next && mode === 'auto') side.push(`<span data-tip="Next scheduled change">${icon('clock')}Next: ${fmtT(next.DegreesC)} at ${next.Day !== today() ? SHORT[next.Day] + ' ' : ''}${fmtMin(hhmm2min(next.Time))}</span>`);
+  // Electric heating in this room (heating actuators).
+  const heaters = (r.HeatingActuatorIds || []).map((id) => state.domain.HeatingActuator?.find((a) => a.id === id)).filter(Boolean);
+  if (heaters.length) {
+    const watts = heaters.reduce((sum, a) => sum + (a.InstantaneousDemand ?? 0), 0);
+    side.push(`<span data-tip="Electric heating in this room, using power now">${icon('zap')}Electric heating: ${fmtWatts(watts)} ${NEW_TAG}</span>`);
+  }
 
   const canUp = target === OFF || target < MAX_T;
   const canDown = target !== OFF;
@@ -696,11 +711,26 @@ function sparkHover(e) {
 const BATTERY_RANGE = { iTRV: [25, 30], RoomStat: [17, 27] };
 const HUB_LEVEL = { Normal: 'Normal', TwoThirds: 'Two thirds', OneThird: 'One third', Low: 'Low' };
 const KIND = { iTRV: 'Radiator valve', RoomStat: 'Room thermostat' };
+// Other battery devices, where the hub has them. Names vary between hub versions, so match loosely.
+function deviceKind(pt = '') {
+  if (KIND[pt]) return KIND[pt];
+  if (/smoke/i.test(pt)) return 'Smoke alarm';
+  if (/window|door|binary|contact/i.test(pt)) return 'Window or door sensor';
+  if (/humid|temp|threshold|climate/i.test(pt)) return 'Temperature sensor';
+  if (/button|panel|switch/i.test(pt)) return 'Button panel';
+  if (/boiler/i.test(pt)) return 'Boiler interface';
+  return pt.replace(/([a-z])([A-Z])/g, '$1 $2') || 'Device';
+}
+const KIND_ICON = { 'Smoke alarm': 'circle-alert', 'Window or door sensor': 'door-open', 'Temperature sensor': 'thermometer', 'Button panel': 'sliders-horizontal', 'Boiler interface': 'flame' };
+// Where the voltage range isn't known, the hub's own rating gives a rough percentage.
+const LEVEL_PCT = { Normal: 90, TwoThirds: 66, OneThird: 33, Low: 10 };
 
 function batteryPct(d) {
-  if (d.BatteryVoltage == null) return null;
-  const [lo, hi] = BATTERY_RANGE[d.ProductType] || BATTERY_RANGE.iTRV;
-  return clamp(Math.round(((d.BatteryVoltage - lo) / (hi - lo)) * 100), 0, 100);
+  if (BATTERY_RANGE[d.ProductType] && d.BatteryVoltage != null) {
+    const [lo, hi] = BATTERY_RANGE[d.ProductType];
+    return clamp(Math.round(((d.BatteryVoltage - lo) / (hi - lo)) * 100), 0, 100);
+  }
+  return LEVEL_PCT[d.BatteryLevel] ?? null;
 }
 
 function batteryStatus(d, pct) {
@@ -711,14 +741,15 @@ function batteryStatus(d, pct) {
   return { level: 'good', label: 'Good', tip: '' };
 }
 
+// Every battery device: valves and thermostats, plus any sensors, alarms or panels the hub has.
 function batteryDevices() {
-  const devices = (state.domain?.Device || []).filter((d) => BATTERY_RANGE[d.ProductType]);
+  const devices = (state.domain?.Device || []).filter((d) => BATTERY_RANGE[d.ProductType] || d.BatteryVoltage != null || d.BatteryLevel != null);
   const list = devices.map((d) => {
-    const room = d.ProductType === 'RoomStat'
-      ? state.domain.Room.find((r) => r.RoomStatId === d.id)
-      : state.domain.Room.find((r) => (r.SmartValveIds || []).includes(d.id));
+    const room = d.ProductType === 'RoomStat' ? state.domain.Room.find((r) => r.RoomStatId === d.id)
+      : d.ProductType === 'iTRV' ? state.domain.Room.find((r) => (r.SmartValveIds || []).includes(d.id))
+      : roomById(d.RoomId);
     const pct = batteryPct(d);
-    return { d, room, pct, status: batteryStatus(d, pct), kind: KIND[d.ProductType] || d.ProductType };
+    return { d, room, pct, status: batteryStatus(d, pct), kind: deviceKind(d.ProductType), heating: !!BATTERY_RANGE[d.ProductType] };
   });
   // Number the valves when a room has more than one.
   for (const b of list) {
@@ -729,6 +760,8 @@ function batteryDevices() {
   const name = (b) => (b.room ? roomName(b.room) : '~');
   return list.sort((a, b) => rank[a.status.level] - rank[b.status.level] || (a.pct ?? -1) - (b.pct ?? -1) || name(a).localeCompare(name(b)));
 }
+// Just the radiator valves and room thermostats (Diagnostics' valve table and tidy-up).
+const heatingSensors = () => batteryDevices().filter((b) => b.heating);
 
 const SIGNAL = { VeryGood: 'Very good', Good: 'Good', Medium: 'Fair', Poor: 'Poor' };
 function signalIcon(d) {
@@ -756,8 +789,8 @@ function batteriesView() {
     const rssi = d.ReceptionOfController?.Rssi ?? d.ReceptionOfDevice?.Rssi;
     const statusIcon = status.level === 'good' ? 'check' : status.level === 'unknown' ? 'clock' : status.offline ? 'wifi-off' : 'battery-warning';
     return `<div class="batt-row ${status.level}">
-      <div class="room-ico">${icon(room ? roomIcon(room) : 'heater')}</div>
-      <div class="batt-name"><b>${room ? esc(roomName(room)) : 'Not in a room'}</b><small>${esc(b.kind)}</small></div>
+      <div class="room-ico">${icon(!b.heating ? KIND_ICON[b.kind] || 'battery' : room ? roomIcon(room) : 'heater')}</div>
+      <div class="batt-name"><b>${room ? esc(roomName(room)) : b.heating ? 'Not in a room' : esc(b.kind)}</b><small>${esc(b.kind)}${b.heating ? '' : ` ${NEW_TAG}`}</small></div>
       <div class="batt-gauge" ${pct == null ? '' : `role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Battery about ${pct}%"`}>
         <div class="batt-track"><span style="width:${pct ?? 0}%"></span></div>
         <b>${pct == null ? '—' : `${pct}%`}</b>
@@ -772,7 +805,7 @@ function batteriesView() {
       <div class="batt-row head"><span></span><span>Device</span><span>Battery</span><span>Voltage</span><span>Signal</span><span>Status</span></div>
       ${rows || '<div class="empty">No battery-powered devices found.</div>'}
     </div>
-    <p class="batt-note">Percentages are estimated from each device's battery voltage. Valves count 2.5 V as empty and 3.0 V as full. Thermostats count 1.7 V as empty and 2.7 V as full. The hub only checks batteries every few hours, so new batteries can take a while to show.</p>`;
+    <p class="batt-note">Percentages are estimated from each device's battery voltage. Valves count 2.5 V as empty and 3.0 V as full. Thermostats count 1.7 V as empty and 2.7 V as full. ${list.some((b) => !b.heating) ? 'Other sensors use the hub\'s own rating, so their percentage is only a rough guide. ' : ''}The hub only checks batteries every few hours, so new batteries can take a while to show.</p>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -856,13 +889,24 @@ function miniLine(series, { from, to, fmt, height = 70, lo, hi, cls = '' }) {
 function diagDeviceLabel(d) {
   const dom = state.domain;
   if (d.ProductType === 'Controller') return { name: 'Heating hub', sub: 'Controller', ico: 'house' };
+  // Equipment the maintainer's hub doesn't have. Lights and shutters point at their device with DeviceId.
+  const byDev = (list) => (list || []).find((x) => (x.DeviceId ?? x.id) === d.id);
+  if (/light/i.test(d.ProductType)) { const l = byDev(dom.Light); return { name: l?.Name || 'Light', sub: /dimm/i.test(d.ProductType) ? 'Dimmable light' : 'Light', ico: 'lightbulb' }; }
+  if (/shutter|blind/i.test(d.ProductType)) { const s = byDev(dom.Shutter); return { name: s?.Name || 'Blind', sub: 'Shutter or blind', ico: 'blinds' }; }
+  if (d.ProductType === 'HeatingActuator') {
+    const room = dom.Room.find((r) => (r.HeatingActuatorIds || []).includes(d.id));
+    return { name: room ? roomName(room) : 'Electric heater', sub: 'Electric heating', ico: 'zap' };
+  }
+  if (d.ProductType === 'UnderFloorHeating') { const u = byDev(dom.UnderFloorHeating); return { name: u?.Name || 'Underfloor heating', sub: 'Underfloor heating controller', ico: 'layers' }; }
   if (d.ProductType === 'SmartPlug') {
     const plug = dom.SmartPlug?.find((p) => p.id === d.id);
     const room = plug && roomById(plug.RoomId);
     return { name: plug?.Name || 'Smart plug', sub: room ? `Smart plug in ${roomName(room)}` : 'Smart plug', ico: 'plug' };
   }
   const b = batteryDevices().find((x) => x.d.id === d.id);
-  return { name: b?.room ? roomName(b.room) : 'Not in a room', sub: b?.kind || d.ProductType, ico: b?.room ? roomIcon(b.room) : 'heater' };
+  const kind = b?.kind || deviceKind(d.ProductType);
+  const heating = !b || b.heating;
+  return { name: b?.room ? roomName(b.room) : heating ? 'Not in a room' : kind, sub: kind, ico: !heating ? KIND_ICON[kind] || 'battery' : b?.room ? roomIcon(b.room) : 'heater' };
 }
 
 const SIG_LEVEL = { VeryGood: 'good', Good: 'good', Medium: 'warn', Poor: 'critical', Online: 'good' };
@@ -1056,11 +1100,12 @@ function diagBoiler() {
   const CPH = { CPH_3: 3, CPH_6: 6, CPH_9: 9, CPH_12: 12 };
   return sectionHead('d-boiler', 'flame', 'Boiler', `Worked out from what this panel has recorded (${fmtHours(recorded)} so far). The numbers fill in as the server keeps running.`) + `
     <div class="diag-tiles">
-      <div class="diag-tile ${dom.HeatingChannel?.[0]?.HeatingRelayState === 'On' ? 'warm' : ''}">${icon('flame')}<div><b>${dom.HeatingChannel?.[0]?.HeatingRelayState === 'On' ? 'Firing' : 'Idle'}</b><span>Boiler now</span><small>${dom.HeatingChannel?.[0]?.PercentageDemand ?? 0}% demand</small></div></div>
+      <div class="diag-tile ${boilerFiring() ? 'warm' : ''}">${icon('flame')}<div><b>${boilerFiring() ? 'Firing' : 'Idle'}</b><span>Boiler now</span><small>${zones().length > 1 ? esc(zonesSummary()) : `${boilerDemand()}% demand`}</small></div></div>
       <div class="diag-tile">${icon('clock')}<div><b>${fmtHours(today.on)}</b><span>Fired today</span><small>Since midnight</small></div></div>
       <div class="diag-tile">${icon('calendar-days')}<div><b>${fmtHours(weekOn)}</b><span>Fired this week</span><small>Last 7 days recorded</small></div></div>
       <div class="diag-tile">${icon('settings-2')}<div><b>${esc(bs.FuelType || '—')}</b><span>${bs.ControlType?.includes('Relay') ? 'On/off relay control' : esc(bs.ControlType || '')}</span><small>Up to ${CPH[bs.CycleRate] || '—'} starts an hour, ${bs.OnOffHysteresis != null ? fmtT(bs.OnOffHysteresis) : '—'} switching band</small></div></div>
     </div>
+    ${diagZones()}
     <div class="diag-grid two">
       <div class="diag-panel">
         <h3>Firing time per day</h3>
@@ -1099,7 +1144,7 @@ function diagTidy() {
     items.push(['info', 'layers', `${unused.length} saved ${unused.length === 1 ? 'schedule is' : 'schedules are'} not used by any room`,
       `${unused.map((s) => `“${esc(s.Name)}”`).join(', ')}. These are usually left over from rooms that were renamed or removed. They do no harm.`]);
   }
-  for (const b of batteryDevices().filter((x) => !x.room)) {
+  for (const b of heatingSensors().filter((x) => !x.room)) {
     items.push(['warn', 'heater', `A ${b.kind.toLowerCase()} isn't assigned to any room`, `${b.status.offline ? "It isn't reporting either, so it's " : "It's "}probably an old device still paired to the hub. Remove it in the Wiser app if you no longer use it. Serial ${esc(b.d.SerialNumber || '—')}.`]);
   }
   for (const b of batteryDevices().filter((x) => x.room && x.status.offline)) {
@@ -1118,7 +1163,7 @@ function diagTidy() {
 
 function diagValves() {
   const dom = state.domain;
-  const rows = batteryDevices().sort((a, b) => (a.room ? roomName(a.room) : '~').localeCompare(b.room ? roomName(b.room) : '~')).map((b) => {
+  const rows = heatingSensors().sort((a, b) => (a.room ? roomName(a.room) : '~').localeCompare(b.room ? roomName(b.room) : '~')).map((b) => {
     const { d, room } = b;
     const valve = d.ProductType === 'iTRV' ? dom.SmartValve?.find((v) => v.id === d.id) : null;
     const stat = d.ProductType === 'RoomStat' ? dom.RoomStat?.find((v) => v.id === d.id) : null;
@@ -1219,8 +1264,457 @@ function diagInfo() {
 
 function diagnosticsView() {
   if (!state.diag) { state.diag = {}; loadDiagnostics(); }
-  return `<nav class="diag-nav" aria-label="Diagnostics sections">${DIAG_SECTIONS.map(([id, ico, label]) => `<a class="chip" href="#${id}">${icon(ico)}${label}</a>`).join('')}</nav>
-    ${diagHealth()}${diagMesh()}${diagEnergy()}${diagBoiler()}${diagTidy()}${diagValves()}${diagInfo()}`;
+  // Hot water, and electric and underfloor heating, only where the hub has them.
+  const sections = DIAG_SECTIONS.flatMap((s) => (s[0] === 'd-boiler' ? [s,
+    ...(hotWater() ? [['d-hotwater', 'droplets', 'Hot water']] : []),
+    ...(state.domain.HeatingActuator?.length || state.domain.UnderFloorHeating?.length ? [['d-electric', 'zap', 'Electric and underfloor']] : []),
+  ] : s[0] === 'd-energy' && !(state.domain.SmartPlug || []).length ? [] : [s]));
+  return `<nav class="diag-nav" aria-label="Diagnostics sections">${sections.map(([id, ico, label]) => `<a class="chip" href="#${id}">${icon(ico)}${label}</a>`).join('')}</nav>
+    ${diagHealth()}${diagMesh()}${diagEnergy()}${diagBoiler()}${diagHotWater()}${diagElectric()}${diagTidy()}${diagValves()}${diagInfo()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Other Wiser equipment: hot water, several heating zones, electric and underfloor heating, lights,
+// shutters and battery sensors. Built from the Wiser libraries' descriptions of the hub and tested
+// against a simulated hub, since the developer's own hub has none of it, so these parts carry a
+// "New" tag inviting feedback.
+
+const NEW_TAG = `<span class="new-tag" data-tip="${esc("<b>New.</b> Tested against a simulated hub, as the developer's own hub doesn't have this equipment. If anything looks wrong, please report it on GitHub.")}">New</span>`;
+const hotWater = () => state.domain?.HotWater?.[0] || null;
+const hwSchedule = () => { const w = hotWater(); return w ? (state.sched?.OnOff || []).find((s) => s.id === w.ScheduleId) || null : null; };
+const zones = () => state.domain?.HeatingChannel || [];
+const zoneName = (i) => `Zone ${i + 1}`;
+const boilerFiring = () => zones().some((c) => c.HeatingRelayState === 'On');
+const boilerDemand = () => Math.max(0, ...zones().map((c) => c.PercentageDemand ?? 0));
+const lights = () => state.domain?.Light || [];
+const shutters = () => state.domain?.Shutter || [];
+const hasLightsOrBlinds = () => lights().length + shutters().length > 0;
+const hwOn = (w = hotWater()) => !!w && (w.HotWaterRelayState === 'On' || w.WaterHeatingState === 'On');
+const levelSchedule = (id) => (state.sched?.Level || []).find((s) => s.id === id) || null;
+const fmtWatts = (w) => (w >= 1000 ? `${(w / 1000).toFixed(2)} kW` : `${Math.round(w)} W`);
+
+// "1 heating zone firing: Zone 1 at 40%, Zone 2 idle".
+function zonesSummary() {
+  return zones().map((c, i) => `${zoneName(i)} ${c.HeatingRelayState === 'On' ? `at ${c.PercentageDemand ?? 0}%` : 'idle'}`).join(', ');
+}
+
+// Hot water as the panel shows it: Auto (its schedule), or On or Off by hand.
+function hwMode(w = hotWater()) {
+  if (!w) return null;
+  if (w.Mode !== 'Manual') return 'auto';
+  return (w.ManualWaterHeatingState || w.WaterHeatingState) === 'On' ? 'on' : 'off';
+}
+const HW_ORIGIN = {
+  FromSchedule: 'Following its schedule', FromBoost: 'Boosted', FromManualMode: 'Set by hand',
+  FromManualOverride: 'Until the next scheduled change', FromAwayMode: 'Held by away mode', FromEcoIQ: 'Adjusted by eco mode',
+};
+
+// On/off schedules (hot water): each day is a list of times, negative meaning "off at"; 2400 is midnight.
+const pickOnOff = (s) => Object.fromEntries(DAYS.map((d) => [d, Array.isArray(s?.[d]) ? [...s[d]] : []]));
+const onOffEvents = (day) => (day || []).map((t) => ({ m: hhmm2min(Math.abs(t) % 2400), on: t >= 0 })).sort((a, b) => a.m - b.m);
+function onOffCarry(days, day) {
+  const i = DAYS.indexOf(day);
+  for (let k = 1; k <= 7; k++) { const ev = onOffEvents(days[DAYS[(i - k + 7) % 7]]); if (ev.length) return ev[ev.length - 1].on; }
+  return false;
+}
+function onOffBandInner(days, day, label) {
+  const segs = [];
+  let cur = onOffCarry(days, day), start = 0;
+  for (const e of onOffEvents(days[day])) { if (e.m > start) segs.push({ from: start, to: e.m, on: cur }); cur = e.on; start = e.m; }
+  segs.push({ from: start, to: 1440, on: cur });
+  return segs.filter((s) => s.to > s.from).map((s) => {
+    const w = ((s.to - s.from) / 1440) * 100;
+    const tip = `<b>${esc(label)}, ${SHORT[day]} ${fmtMin(s.from)} to ${s.to === 1440 ? '24:00' : fmtMin(s.to)}</b><br>${s.on ? 'On' : 'Off'}`;
+    return `<span class="seg-fill onoff ${s.on ? 'on' : 'off'}" style="left:${(s.from / 1440) * 100}%;width:${w}%" data-tip="${esc(tip)}">${w >= 6 ? (s.on ? 'On' : 'Off') : ''}</span>`;
+  }).join('');
+}
+// The next on or off change, from the hub's clock.
+function nextOnOff(days) {
+  const t0 = DAYS.indexOf(today()), now = nowMin();
+  for (let k = 0; k <= 7; k++) {
+    const day = DAYS[(t0 + k) % 7];
+    const e = onOffEvents(days[day]).find((x) => k > 0 || x.m > now);
+    if (e) return { on: e.on, label: `${k ? `${SHORT[day]} ` : ''}${fmtMin(e.m)}` };
+  }
+  return null;
+}
+
+// Level schedules (lights, shutters): { Time, Level }; 3000 and 4000 mean sunrise and sunset, which
+// the hub lists for today and the next six days.
+function levelMinutes(t, day) {
+  if (t !== 3000 && t !== 4000) return hhmm2min(t % 2400);
+  const list = t === 3000 ? sys().SunriseTimes : sys().SunsetTimes;
+  const v = list?.[(DAYS.indexOf(day) - DAYS.indexOf(today()) + 7) % 7];
+  return v != null ? hhmm2min(v) : t === 3000 ? 7 * 60 : 19 * 60;
+}
+const levelTimeLabel = (t) => (t === 3000 ? 'Sunrise' : t === 4000 ? 'Sunset' : fmtMin(hhmm2min(t % 2400)));
+const levelEvents = (d, day) => ((d?.Time) || []).map((t, i) => ({ t, m: levelMinutes(t, day), level: d.Level?.[i] ?? 0 })).sort((a, b) => a.m - b.m);
+function levelBandInner(s, day, label, kind) {
+  const evFor = (dd) => levelEvents(s?.[dd], dd);
+  let cur = 0;
+  const i = DAYS.indexOf(day);
+  for (let k = 1; k <= 7; k++) { const ev = evFor(DAYS[(i - k + 7) % 7]); if (ev.length) { cur = ev[ev.length - 1].level; break; } }
+  const segs = [];
+  let start = 0;
+  for (const e of evFor(day)) { if (e.m > start) segs.push({ from: start, to: e.m, level: cur }); cur = e.level; start = e.m; }
+  segs.push({ from: start, to: 1440, level: cur });
+  const word = (l) => (kind === 'shutter' ? (l >= 100 ? 'Open' : l <= 0 ? 'Closed' : `${l}% open`) : kind === 'switch' ? (l > 0 ? 'On' : 'Off') : l > 0 ? `${l}%` : 'Off');
+  return segs.filter((x) => x.to > x.from).map((x) => {
+    const w = ((x.to - x.from) / 1440) * 100;
+    const tip = `<b>${esc(label)}, ${SHORT[day]} ${fmtMin(x.from)} to ${x.to === 1440 ? '24:00' : fmtMin(x.to)}</b><br>${word(x.level)}`;
+    return `<span class="seg-fill level ${kind} ${x.level > 0 ? 'on' : 'off'}" style="left:${(x.from / 1440) * 100}%;width:${w}%;--lvl:${x.level / 100}" data-tip="${esc(tip)}">${w >= 9 ? word(x.level) : ''}</span>`;
+  }).join('');
+}
+
+// --- Hot water on Rooms and Schedules ---------------------------------------
+
+function hotWaterCard() {
+  const w = hotWater();
+  if (!w) return '';
+  const on = hwOn(w), mode = hwMode(w);
+  const overridden = w.OverrideType && w.OverrideType !== 'None';
+  const until = w.OverrideTimeoutUnixTime ? hubClockAt(w.OverrideTimeoutUnixTime) : null;
+  const origin = overridden && until ? `Boosted until ${until}` : HW_ORIGIN[w.HotWaterDescription] || (mode === 'auto' ? 'Following its schedule' : 'Set by hand');
+  const sch = hwSchedule();
+  const days = sch ? pickOnOff(sch) : null;
+  const next = days && mode === 'auto' ? nextOnOff(days) : null;
+  return `<article class="card hw-card ${on ? 'on' : ''}" style="--accent:${on ? '#2a93ad' : 'var(--line)'}">
+    <div class="card-head">
+      <div class="room-ico">${icon('droplets')}</div>
+      <div class="room-name">Hot water ${NEW_TAG}</div>
+      <div class="card-flags">${on ? `<span class="hot">${icon('flame')}Heating</span>` : ''}</div>
+    </div>
+    <div class="readout">
+      <div class="big-temp hw-state">${on ? 'On' : 'Off'}</div>
+      <div class="target"><b>${esc(origin)}</b><small>${next ? `Next: ${next.on ? 'on' : 'off'} at ${next.label}` : mode === 'auto' ? '' : 'Not following its schedule'}</small></div>
+    </div>
+    ${days ? `<button class="band mini-band hw-band" data-act="hw-edit" data-day="${today()}" aria-label="Edit the hot water schedule">${onOffBandInner(days, today(), 'Hot water')}<i class="now-tick"></i></button>
+      <p class="card-note">Today's schedule. Click it to change.</p>` : ''}
+    <div class="controls">
+      <div class="seg mode-seg" role="group" aria-label="Hot water mode">
+        <button data-act="hw-mode" data-v="auto" aria-pressed="${mode === 'auto'}" data-tip="Follow the hot water schedule">${icon('calendar-clock')}Auto</button>
+        <button data-act="hw-mode" data-v="on" aria-pressed="${mode === 'on'}" data-tip="On until you change it">${icon('power')}On</button>
+        <button data-act="hw-mode" data-v="off" aria-pressed="${mode === 'off'}" data-tip="Off until you change it">${icon('power')}Off</button>
+      </div>
+      ${overridden
+        ? `<button class="btn small boost-btn active" data-act="hw-cancel" data-tip="Back to its schedule">${icon(until ? 'flame' : 'rotate-ccw')}${until ? `Until ${until}` : 'Back to schedule'}${icon('x')}</button>`
+        : `<button class="btn small boost-btn" data-act="hw-boost">${icon('flame')}Boost</button>`}
+    </div>
+  </article>`;
+}
+
+function hwTimelineRow() {
+  const w = hotWater(), sch = hwSchedule();
+  if (!w || !sch) return '';
+  const days = pickOnOff(sch);
+  const td = today();
+  const isToday = state.mode === 'week' || state.day === td;
+  const band = state.mode === 'day'
+    ? `<button class="band hw-band" data-act="hw-edit" data-day="${state.day}" aria-label="Edit the hot water schedule on ${state.day}">${onOffBandInner(days, state.day, 'Hot water')}</button>`
+    : `<div class="week-strips">${DAYS.map((d) => `<div class="week-strip ${d === td ? 'today' : ''}"><span class="d">${SHORT[d]}</span>
+        <button class="band hw-band" data-act="hw-edit" data-day="${d}" aria-label="Edit the hot water schedule on ${d}">${onOffBandInner(days, d, 'Hot water')}${d === td ? '<i class="now-tick"></i>' : ''}</button></div>`).join('')}</div>`;
+  return `<div class="tl-row hw-row">
+    <div class="label-col">
+      <span class="check-space"></span>
+      <div class="room-ico">${icon('droplets')}</div>
+      <div class="room-meta">
+        <div class="room-name">Hot water ${NEW_TAG}</div>
+        <div class="room-status">${hwOn(w) ? `<span class="hot">${icon('flame')}On now</span>` : 'Off now'}${hwMode(w) !== 'auto' ? ', set by hand' : ''}</div>
+      </div>
+    </div>
+    <div class="band-col">
+      <div class="grid-lines ${state.mode === 'week' ? 'week' : ''}">${[3, 6, 9, 12, 15, 18, 21].map((h) => `<i style="left:${(h / 24) * 100}%"></i>`).join('')}</div>
+      ${band}
+      ${state.mode === 'day' && isToday ? '<div class="now-line"></div>' : ''}
+    </div>
+    <span></span>
+  </div>`;
+}
+
+async function setHotWater(body, okMsg) {
+  const w = hotWater();
+  if (!w) return;
+  await act(async () => { for (const b of [].concat(body)) await api('PATCH', `/api/hotwater/${w.id}`, b); }, okMsg);
+}
+function hwSetMode(v) {
+  // Manual on/off: the mode, plus an override that holds it (some firmware only acts on one of them).
+  if (v === 'auto') return setHotWater({ Mode: 'Auto', RequestOverride: { Type: 'None' } }, 'Hot water back on its schedule');
+  const on = v === 'on';
+  return setHotWater([
+    { Mode: 'Manual', ManualWaterHeatingState: on ? 'On' : 'Off' },
+    { RequestOverride: { Type: 'Manual', SetPoint: on ? 1100 : -200 } },
+  ], `Hot water ${on ? 'on' : 'off'} until you change it`);
+}
+function openHwBoost(anchor) {
+  const pop = $('#popover');
+  pop.innerHTML = `<h3>${icon('droplets')}Boost hot water</h3>
+    <div class="row"><span>On for</span><div class="seg">${[30, 60, 120, 180].map((m) => `<button data-b="${m}">${m >= 60 ? `${m / 60} h` : `${m} min`}</button>`).join('')}</div></div>`;
+  pop.hidden = false;
+  const a = anchor.getBoundingClientRect();
+  pop.style.left = `${clamp(a.right - 280, 12, innerWidth - 292)}px`;
+  pop.style.top = `${Math.max(12, a.bottom + 8 + 140 > innerHeight ? a.top - 8 - pop.offsetHeight : a.bottom + 8)}px`;
+  pop.onclick = (e) => {
+    const b = e.target.closest('[data-b]');
+    if (!b) return;
+    closePopover();
+    const m = Number(b.dataset.b);
+    setHotWater({ RequestOverride: { Type: 'Manual', DurationMinutes: m, SetPoint: 1100 } }, `Hot water boosted for ${m >= 60 ? `${m / 60} h` : `${m} min`}`);
+  };
+}
+
+// --- Lights & blinds ---------------------------------------------------------
+
+function devOrigin(x) {
+  const map = { FromSchedule: 'Following its schedule', FromManualMode: 'Set by hand', FromManualOverride: 'Until the next scheduled change', FromAwayMode: 'Set by away mode', FromBoost: 'Boosted' };
+  return map[x.ControlSource] || (x.Mode === 'Auto' ? 'Following its schedule' : 'Set by hand');
+}
+function devScheduleBand(x, kind) {
+  const s = levelSchedule(x.ScheduleId);
+  if (!s) return '<p class="card-note">No schedule.</p>';
+  return `<button class="band mini-band" data-act="dev-sched" data-kind="${kind}" data-id="${x.id}" data-day="${today()}" aria-label="Edit the schedule for ${esc(x.Name || '')}">${levelBandInner(s, today(), x.Name || '', kind)}<i class="now-tick"></i></button>
+    <p class="card-note">Today's schedule. Click it to change.</p>`;
+}
+function lightCard(l) {
+  const on = l.CurrentState === 'On';
+  const room = roomById(l.RoomId);
+  const pct = l.IsDimmable ? (on ? l.CurrentPercentage ?? 100 : 0) : null;
+  return `<article class="card dev-card ${on ? 'on' : ''}" style="--accent:${on ? '#e8b339' : 'var(--line)'}">
+    <div class="card-head"><div class="room-ico">${icon('lightbulb')}</div><div class="room-name">${esc(l.Name || 'Light')}</div>
+      <div class="card-flags">${room ? `<span>${icon(roomIcon(room))}${esc(roomName(room))}</span>` : ''}</div></div>
+    <div class="readout"><div class="big-temp dev-state">${on ? (pct != null ? `${pct}%` : 'On') : 'Off'}</div>
+      <div class="target"><b>${esc(devOrigin(l))}</b><small>${l.IsDimmable ? 'Dimmable light' : 'Light'}</small></div></div>
+    ${devScheduleBand(l, l.IsDimmable ? 'dim' : 'switch')}
+    <div class="controls">
+      <div class="seg mode-seg" role="group" aria-label="${esc(l.Name || 'Light')} mode">
+        <button data-act="light-mode" data-id="${l.id}" data-v="Auto" aria-pressed="${l.Mode === 'Auto'}">${icon('calendar-clock')}Auto</button>
+        <button data-act="light-mode" data-id="${l.id}" data-v="Manual" aria-pressed="${l.Mode !== 'Auto'}">${icon('hand')}Manual</button>
+      </div>
+      <div class="dev-buttons">
+        <button class="btn small" data-act="light-set" data-id="${l.id}" data-v="On" ${on ? 'disabled' : ''}>On</button>
+        <button class="btn small" data-act="light-set" data-id="${l.id}" data-v="Off" ${on ? '' : 'disabled'}>Off</button>
+      </div>
+      ${l.IsDimmable ? `<label class="dev-range">${icon('sun')}<input type="range" min="1" max="100" step="1" value="${pct || l.CurrentPercentage || 50}" data-act="light-dim" data-id="${l.id}" aria-label="Brightness"></label>` : ''}
+    </div>
+  </article>`;
+}
+function shutterCard(s) {
+  const room = roomById(s.RoomId);
+  const lift = s.CurrentLift ?? 0;
+  const moving = s.LiftMovement && s.LiftMovement !== 'Stopped';
+  const pos = lift >= 100 ? 'Open' : lift <= 0 ? 'Closed' : `${lift}% open`;
+  return `<article class="card dev-card" style="--accent:var(--cold)">
+    <div class="card-head"><div class="room-ico">${icon('blinds')}</div><div class="room-name">${esc(s.Name || 'Blind')}</div>
+      <div class="card-flags">${room ? `<span>${icon(roomIcon(room))}${esc(roomName(room))}</span>` : ''}</div></div>
+    <div class="readout"><div class="big-temp dev-state">${lift > 0 && lift < 100 ? `${lift}%<small> open</small>` : pos}</div>
+      <div class="target"><b>${moving ? esc(s.LiftMovement) : esc(devOrigin(s))}</b><small>Shutter or blind</small></div></div>
+    ${devScheduleBand(s, 'shutter')}
+    <div class="controls">
+      <div class="seg mode-seg" role="group" aria-label="${esc(s.Name || 'Blind')} mode">
+        <button data-act="shutter-mode" data-id="${s.id}" data-v="Auto" aria-pressed="${s.Mode === 'Auto'}">${icon('calendar-clock')}Auto</button>
+        <button data-act="shutter-mode" data-id="${s.id}" data-v="Manual" aria-pressed="${s.Mode !== 'Auto'}">${icon('hand')}Manual</button>
+      </div>
+      <div class="dev-buttons">
+        <button class="btn small" data-act="shutter-move" data-id="${s.id}" data-v="100">Open</button>
+        <button class="btn small" data-act="shutter-stop" data-id="${s.id}">Stop</button>
+        <button class="btn small" data-act="shutter-move" data-id="${s.id}" data-v="0">Close</button>
+      </div>
+      <label class="dev-range">${icon('blinds')}<input type="range" min="0" max="100" step="5" value="${lift}" data-act="shutter-lift" data-id="${s.id}" aria-label="How far open"></label>
+    </div>
+  </article>`;
+}
+function lightsView() {
+  const ls = lights(), ss = shutters();
+  return `<p class="lib-intro">${NEW_TAG} Lights and blinds on your Wiser hub. <b>Auto</b> follows each one's schedule; <b>Manual</b> stays as you set it.</p>
+    ${ls.length ? `<h2 class="section-title">${icon('lightbulb')}Lights</h2><div class="room-grid">${ls.map(lightCard).join('')}</div>` : ''}
+    ${ss.length ? `<h2 class="section-title">${icon('blinds')}Shutters and blinds</h2><div class="room-grid">${ss.map(shutterCard).join('')}</div>` : ''}`;
+}
+const lightById = (id) => lights().find((l) => l.id === Number(id));
+const shutterById = (id) => shutters().find((s) => s.id === Number(id));
+
+// --- On/off and level schedule editor (hot water, lights, blinds) ------------
+// Rows are "at this time, set this": exactly how the hub stores these schedules.
+
+let devEd = null; // { kind: 'hw' | 'dim' | 'switch' | 'shutter', schedType: 'OnOff' | 'Level', schedId, title, day, rows, days: Set }
+
+function openDeviceEditor(kind, target, day) {
+  const isHw = kind === 'hw';
+  const s = isHw ? hwSchedule() : levelSchedule(target.ScheduleId);
+  if (!s) return toast("This hasn't got a schedule on the hub", true);
+  const rows = isHw
+    ? onOffEvents(s[day]).map((e) => ({ time: fmtMin(e.m), special: '', value: e.on ? 100 : 0 }))
+    : levelEvents(s[day], day).map((e) => ({ time: e.t === 3000 || e.t === 4000 ? '' : fmtMin(e.m), special: e.t === 3000 ? 'sunrise' : e.t === 4000 ? 'sunset' : '', value: e.level }));
+  devEd = { kind, schedType: isHw ? 'OnOff' : 'Level', schedId: s.id, title: isHw ? 'Hot water' : target.Name || (kind === 'shutter' ? 'Blind' : 'Light'), day, rows, days: new Set([day]), sched: s };
+  openModal(devEdHTML(), onDevEdAction);
+}
+
+function devValueInput(r, i) {
+  const k = devEd.kind;
+  if (k === 'hw' || k === 'switch') {
+    return `<select data-row="${i}" data-f="value" aria-label="On or off"><option value="100" ${r.value > 0 ? 'selected' : ''}>On</option><option value="0" ${r.value > 0 ? '' : 'selected'}>Off</option></select>`;
+  }
+  return `<span class="lvl-input"><input type="number" min="0" max="100" step="${k === 'shutter' ? 5 : 1}" value="${r.value}" data-row="${i}" data-f="value" aria-label="${k === 'shutter' ? 'Percent open' : 'Brightness'}">${k === 'shutter' ? '% open' : '%'}</span>`;
+}
+
+function devEdHTML() {
+  const e = devEd;
+  const level = e.schedType === 'Level';
+  const rows = e.rows.map((r, i) => `<div class="dev-row">
+      <span>At</span>
+      ${level ? `<select data-row="${i}" data-f="special" aria-label="When"><option value="" ${r.special ? '' : 'selected'}>a time</option><option value="sunrise" ${r.special === 'sunrise' ? 'selected' : ''}>sunrise</option><option value="sunset" ${r.special === 'sunset' ? 'selected' : ''}>sunset</option></select>` : ''}
+      <input type="time" step="900" value="${r.time}" data-row="${i}" data-f="time" ${r.special ? 'hidden' : ''} aria-label="Time">
+      <span>${e.kind === 'shutter' ? 'move to' : 'switch'}</span>
+      ${devValueInput(r, i)}
+      <button class="icon-btn" data-md="dev-del" data-row="${i}" aria-label="Remove this change">${icon('trash')}</button>
+    </div>`).join('');
+  return `<div class="modal-body dev-editor">
+      <h2>${esc(e.title)}: ${e.day} ${NEW_TAG}</h2>
+      <p>Each line is a change the hub makes at that time. It stays that way until the next change${e.schedType === 'OnOff' ? ', carrying on past midnight' : ''}.</p>
+      <div class="dev-rows">${rows || '<p class="muted">No changes on this day, so it carries on from the day before.</p>'}</div>
+      <button class="btn small" data-md="dev-add">${icon('plus')}Add a change</button>
+      <div class="field" style="margin-top:16px">Use it on</div>
+      <div class="days-pick">${DAYS.map((d) => `<button class="chip" data-md="dev-day" data-day="${d}" aria-pressed="${e.days.has(d)}">${SHORT[d]}</button>`).join('')}
+        <span class="days-presets"><button class="btn ghost small" data-md="dev-days" data-v="week">Weekdays</button><button class="btn ghost small" data-md="dev-days" data-v="weekend">Weekend</button><button class="btn ghost small" data-md="dev-days" data-v="all">Every day</button></span></div>
+      <p class="setup-error" id="devErr" role="alert"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-md="cancel">Cancel</button>
+      <button class="btn primary" data-md="dev-save">${icon('check')}Save to hub</button>
+    </div>`;
+}
+
+// Keeps what's been typed before the rows are redrawn.
+function devEdRead() {
+  for (const el of $$('#modal [data-row][data-f]')) {
+    const r = devEd.rows[Number(el.dataset.row)];
+    if (!r) continue;
+    r[el.dataset.f] = el.dataset.f === 'value' ? Number(el.value) : el.value;
+  }
+}
+function devEdRender() { setDialogHTML($('#modal'), devEdHTML()); }
+
+async function onDevEdAction(act, el) {
+  if (!devEd) return;
+  if (act === 'change') { devEdRead(); if (el.dataset.f === 'special') devEdRender(); return; }
+  devEdRead();
+  if (act === 'dev-add') { const last = devEd.rows[devEd.rows.length - 1]; devEd.rows.push({ time: '12:00', special: '', value: last ? (last.value > 0 ? 0 : 100) : 100 }); return devEdRender(); }
+  if (act === 'dev-del') { devEd.rows.splice(Number(el.dataset.row), 1); return devEdRender(); }
+  if (act === 'dev-day') { const d = el.dataset.day; if (devEd.days.has(d) && devEd.days.size > 1) devEd.days.delete(d); else devEd.days.add(d); return devEdRender(); }
+  if (act === 'dev-days') { devEd.days = new Set(el.dataset.v === 'week' ? DAYS.slice(0, 5) : el.dataset.v === 'weekend' ? DAYS.slice(5) : DAYS); return devEdRender(); }
+  if (act !== 'dev-save') return;
+  const err = $('#devErr');
+  const toHHMM = (s) => { const [h, m] = String(s).split(':').map(Number); return h * 100 + m; };
+  const rows = devEd.rows.map((r) => ({ ...r, t: r.special === 'sunrise' ? 3000 : r.special === 'sunset' ? 4000 : r.time ? toHHMM(r.time) : NaN }));
+  if (rows.some((r) => Number.isNaN(r.t))) { err.textContent = 'Give every change a time.'; return; }
+  if (rows.some((r) => !(r.value >= 0 && r.value <= 100))) { err.textContent = 'Levels go from 0 to 100.'; return; }
+  const order = (r) => (r.t >= 3000 ? levelMinutes(r.t, devEd.day) : hhmm2min(r.t));
+  rows.sort((a, b) => order(a) - order(b));
+  const dayData = devEd.schedType === 'OnOff'
+    ? rows.map((r) => (r.value > 0 ? (r.t || 2400) : -(r.t || 2400)))
+    : { Time: rows.map((r) => r.t), Level: rows.map((r) => Math.round(r.value)) };
+  const days = Object.fromEntries([...devEd.days].map((d) => [d, dayData]));
+  const btn = $('#modal [data-md="dev-save"]');
+  btn.disabled = true;
+  try {
+    await api('PUT', `/api/device-schedule/${devEd.schedType}/${devEd.schedId}`, { days });
+    closeModal();
+    toast(`Saved ${devEd.title.toLowerCase() === 'hot water' ? 'the hot water' : `${devEd.title}'s`} schedule. A backup of the old one was kept.`);
+    devEd = null;
+    await settle();
+    await refresh();
+  } catch (e) {
+    err.textContent = e.message;
+    btn.disabled = false;
+  }
+}
+
+// --- Diagnostics: zones, hot water, electric and underfloor heating ----------
+
+function historyShare(key, fromT, pick = (p) => p[key]) {
+  let on = 0, cov = 0;
+  for (const s of historySpans(fromT)) { const v = pick(s.p); if (v == null) continue; cov += s.dt; if (v) on += s.dt; }
+  return { on, cov };
+}
+
+function diagZones() {
+  const zs = zones();
+  if (zs.length < 2) return '';
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  return `<div class="diag-panel">
+      <h3>Heating zones ${NEW_TAG}</h3>
+      <div class="zone-list">${zs.map((c, i) => {
+        const on = c.HeatingRelayState === 'On';
+        const today0 = historyShare('z', midnight.getTime(), (p) => p.z?.[i]);
+        const names = (c.RoomIds || []).map(roomById).filter(Boolean).map(roomName);
+        return `<div class="zone ${on ? 'on' : ''}">
+          <b>${icon('flame')}${zoneName(i)}</b>
+          <span>${on ? `Firing, ${c.PercentageDemand ?? 0}% demand` : 'Idle'}</span>
+          <span>${today0.cov ? `Fired ${fmtHours(today0.on)} today` : 'Nothing recorded today yet'}</span>
+          <small>${names.length ? esc(names.join(', ')) : 'No rooms'}</small>
+        </div>`;
+      }).join('')}</div>
+    </div>`;
+}
+
+function diagHotWater() {
+  const w = hotWater();
+  if (!w) return '';
+  const now = Date.now();
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+  const today0 = historyShare('hw', midnight.getTime());
+  const week = historyShare('hw', now - 7 * 86400e3);
+  const from24 = now - 24 * 3600e3;
+  const spans = historySpans(from24).filter((s) => s.p.hw != null);
+  const strip = spans.filter((s) => s.p.hw).map((s) => `<i style="left:${((s.p.t - from24) / 864e5) * 100}%;width:${(s.dt / 864e5) * 100}%" data-tip="${esc(`On from ${clockOf(s.p.t)}`)}"></i>`).join('');
+  const covered = spans.map((s) => `<u style="left:${((s.p.t - from24) / 864e5) * 100}%;width:${(s.dt / 864e5) * 100}%"></u>`).join('');
+  return sectionHead('d-hotwater', 'droplets', `Hot water ${NEW_TAG}`, 'When the hot water has been heating, from what this panel has recorded.') + `
+    <div class="diag-tiles">
+      <div class="diag-tile ${hwOn(w) ? 'warm' : ''}">${icon('droplets')}<div><b>${hwOn(w) ? 'On' : 'Off'}</b><span>Hot water now</span><small>${esc(HW_ORIGIN[w.HotWaterDescription] || w.Mode || '')}</small></div></div>
+      <div class="diag-tile">${icon('clock')}<div><b>${today0.cov ? fmtHours(today0.on) : '—'}</b><span>On today</span><small>Since midnight</small></div></div>
+      <div class="diag-tile">${icon('calendar-days')}<div><b>${week.cov ? fmtHours(week.on) : '—'}</b><span>On this week</span><small>Last 7 days recorded</small></div></div>
+    </div>
+    <div class="diag-panel">
+      <h3>Last 24 hours</h3>
+      <div class="fire-strip">${covered}${strip}</div>
+      <div class="fire-axis"><span>${clockOf(from24)}</span><span>${clockOf(from24 + 12 * 3600e3)}</span><span>Now</span></div>
+      <div class="spark-key" style="margin-top:8px"><span><i class="blk"></i>Hot water on</span><span><i class="rec"></i>Recorded</span></div>
+    </div>`;
+}
+
+function diagElectric() {
+  const acts = state.domain?.HeatingActuator || [];
+  const ufh = state.domain?.UnderFloorHeating || [];
+  if (!acts.length && !ufh.length) return '';
+  const price = state.settings?.pricePerKwh ?? 25;
+  const from = Date.now() - 24 * 3600e3;
+  const actCards = acts.map((a) => {
+    const room = state.domain.Room.find((r) => (r.HeatingActuatorIds || []).includes(a.id));
+    const pts = state.history.filter((h) => h.t >= from && h.a?.[a.id]);
+    const totals = pts.map((h) => h.a[a.id][1]).filter((v) => v != null);
+    const used = totals.length >= 2 ? Math.max(0, totals[totals.length - 1] - totals[0]) : null;
+    return `<div class="diag-panel energy">
+      <div class="energy-head">${icon('zap')}<div><b>${room ? esc(roomName(room)) : 'Electric heater'}</b><small>Electric heating</small></div></div>
+      <dl class="kv">
+        <div><dt>Using now</dt><dd>${fmtWatts(a.InstantaneousDemand ?? 0)}</dd></div>
+        <div><dt>Its reading</dt><dd>${a.MeasuredTemperature != null && a.MeasuredTemperature !== NO_READING ? fmtT(a.MeasuredTemperature) : '—'}</dd></div>
+        <div><dt>Target</dt><dd>${a.OccupiedHeatingSetPoint != null ? fmtT(a.OccupiedHeatingSetPoint) : '—'}</dd></div>
+        <div><dt>Used recently</dt><dd>${used == null ? '—' : `${(used / 1000).toFixed(2)} kWh <small>about ${((used / 1000) * price).toFixed(0)}p</small>`}</dd></div>
+        <div><dt>Total recorded</dt><dd>${a.CurrentSummationDelivered != null ? `${(a.CurrentSummationDelivered / 1000).toFixed(1)} kWh` : '—'}</dd></div>
+      </dl>
+      ${miniLine(pts.map((h) => ({ t: h.t, v: h.a[a.id][0] })), { from, to: Date.now(), fmt: fmtWatts, height: 56, lo: 0 })}
+    </div>`;
+  }).join('');
+  const ufhCards = ufh.map((u) => `<div class="diag-panel">
+      <div class="energy-head">${icon('layers')}<div><b>${esc(u.Name || 'Underfloor heating')}</b><small>Underfloor heating controller</small></div></div>
+      ${u.DewDetected ? `<p class="warn-text">${icon('droplets')} Condensation detected. The controller holds back cooling or heating to protect the floor.</p>` : ''}
+      <dl class="kv">
+        <div><dt>Floor limits</dt><dd>${u.MinHeatFloorTemperature != null ? fmtT(u.MinHeatFloorTemperature) : '—'} to ${u.MaxHeatFloorTemperature != null ? fmtT(u.MaxHeatFloorTemperature) : '—'}</dd></div>
+        <div><dt>Interlock</dt><dd>${u.InterlockActive ? 'Active' : 'Off'}</dd></div>
+        <div><dt>Condensation</dt><dd>${u.DewDetected ? '<span class="warn-text">Detected</span>' : 'None'}</dd></div>
+      </dl>
+      ${(u.Relays || []).length ? `<h3>Relays</h3><div class="hbars relays">${u.Relays.map((r) => `<div class="hbar"><span>Relay ${esc(r.id)}</span><div><i style="width:${clamp(r.DemandPercentage ?? 0, 0, 100)}%"></i></div><b>${r.DemandPercentage ?? 0}%</b></div>`).join('')}</div>` : ''}
+    </div>`).join('');
+  return sectionHead('d-electric', 'zap', `Electric and underfloor heating ${NEW_TAG}`, 'Electric heaters and underfloor heating controllers on the hub. Costs are estimates at your unit price.') + `
+    <div class="diag-grid three">${actCards}${ufhCards}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3017,7 +3511,7 @@ const hideTip = () => { tip().hidden = true; };
 
 document.addEventListener('click', (e) => {
   const pop = $('#popover');
-  if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('[data-act="boost-open"]')) closePopover();
+  if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('[data-act="boost-open"], [data-act="hw-boost"]')) closePopover();
 
   const tab = e.target.closest('.tabs button');
   if (tab) {
@@ -3047,6 +3541,21 @@ document.addEventListener('click', (e) => {
     case 'set-choice': return saveSettings({ [b.dataset.key]: Number(b.dataset.v) }, 'Saved');
     case 'set-test': return testHubConnection();
     case 'pick-icon': return openIconPicker(Number(b.dataset.room));
+    case 'hw-mode': return hwSetMode(b.dataset.v);
+    case 'hw-boost':
+      if (!$('#popover').hidden) return closePopover();
+      return openHwBoost(b);
+    case 'hw-cancel': return setHotWater({ RequestOverride: { Type: 'None' } }, 'Hot water back on its schedule');
+    case 'hw-edit': return openDeviceEditor('hw', null, b.dataset.day);
+    case 'dev-sched': {
+      const x = b.dataset.kind === 'shutter' ? shutterById(b.dataset.id) : lightById(b.dataset.id);
+      return x && openDeviceEditor(b.dataset.kind, x, b.dataset.day);
+    }
+    case 'light-set': return act(() => api('PATCH', `/api/light/${b.dataset.id}`, { RequestOverride: { State: b.dataset.v } }), `${lightById(b.dataset.id)?.Name || 'Light'} ${b.dataset.v.toLowerCase()}`);
+    case 'light-mode': return act(() => api('PATCH', `/api/light/${b.dataset.id}`, { Mode: b.dataset.v }), `${lightById(b.dataset.id)?.Name || 'Light'} set to ${b.dataset.v.toLowerCase()}`);
+    case 'shutter-move': return act(() => api('PATCH', `/api/shutter/${b.dataset.id}`, { RequestAction: { Action: 'LiftTo', Percentage: Number(b.dataset.v) } }), `${shutterById(b.dataset.id)?.Name || 'Blind'} ${Number(b.dataset.v) >= 100 ? 'opening' : 'closing'}`);
+    case 'shutter-stop': return act(() => api('PATCH', `/api/shutter/${b.dataset.id}`, { RequestAction: { Action: 'Stop' } }), `${shutterById(b.dataset.id)?.Name || 'Blind'} stopped`);
+    case 'shutter-mode': return act(() => api('PATCH', `/api/shutter/${b.dataset.id}`, { Mode: b.dataset.v }), `${shutterById(b.dataset.id)?.Name || 'Blind'} set to ${b.dataset.v.toLowerCase()}`);
     case 'trips': return openTrips();
     case 'trip-home': return tripHomeEarly();
     case 'find-hub': return findHub();
@@ -3158,6 +3667,14 @@ document.addEventListener('change', (e) => {
     const v = Number(el.value);
     if (v > 0) saveSettings({ pricePerKwh: v }, `Unit price set to ${v}p per kWh`);
     return;
+  }
+  if (el.dataset.act === 'light-dim') {
+    const v = Number(el.value);
+    return act(() => api('PATCH', `/api/light/${el.dataset.id}`, { RequestOverride: { Percentage: v } }), `${lightById(el.dataset.id)?.Name || 'Light'} at ${v}%`);
+  }
+  if (el.dataset.act === 'shutter-lift') {
+    const v = Number(el.value);
+    return act(() => api('PATCH', `/api/shutter/${el.dataset.id}`, { RequestAction: { Action: 'LiftTo', Percentage: v } }), `${shutterById(el.dataset.id)?.Name || 'Blind'} moving to ${v}% open`);
   }
   if (el.dataset.act === 'copy-week' && el.value) {
     const src = roomById(el.value);
@@ -3272,7 +3789,7 @@ async function boot() {
 // The phone app ("Add to Home Screen")
 
 // Opened from the app icon or one of its long-press shortcuts: ?view=rooms, ?action=boost, and so on.
-const VIEWS = ['schedules', 'rooms', 'batteries', 'diagnostics', 'settings'];
+const VIEWS = ['schedules', 'rooms', 'lights', 'batteries', 'diagnostics', 'settings'];
 let launchAction = null;
 (function readLaunchUrl() {
   const q = new URLSearchParams(location.search);

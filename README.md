@@ -28,6 +28,7 @@ The first time, a short setup screen finds your hub on the network and walks you
 - Temperature graphs and boiler statistics that the hub doesn't keep itself
 - An automatic backup before every schedule change
 - Plan trips away, and the heating switches to Away and back by itself
+- Hot water, heating zones, electric and underfloor heating, lights and blinds, if your system has them *(new)*
 
 <table>
   <tr>
@@ -108,9 +109,21 @@ During a trip, every room is held at the Away temperature from Settings. Boosts 
 
 Trips run on the panel's server, so they happen on time even with the page closed. That works best where the panel is always running: Home Assistant, Docker, or the Linux service. On a desktop, the computer needs to be on. If it wasn't, the panel catches up as soon as it starts again.
 
+### Hot water, lights, blinds and more *(new)*
+
+The panel also supports Wiser equipment beyond radiator valves and thermostats. Each part only appears if your hub has that equipment, so a simple setup stays uncluttered.
+
+- **Hot water.** A card on the Rooms tab with **Auto**, **On** and **Off**, and a boost for 30 minutes to 3 hours. The hot water schedule sits on the Schedules timeline alongside the rooms, and you can edit it there.
+- **Heating zones.** On systems with more than one heating zone, the header and the Rooms tab show which zones are firing. Diagnostics shows how long each zone has fired today, and which rooms it serves.
+- **Electric and underfloor heating.** Electric heaters show their power use on the room's card. Diagnostics shows their energy use, and the underfloor controllers' relays, floor limits and condensation warnings.
+- **Lights and blinds.** A **Lights & blinds** tab appears, with on/off, brightness, open/close/stop and a position slider. Each one's schedule can be edited, including sunrise and sunset times.
+- **Every battery device.** Smoke alarms, window and door sensors, and button panels join the valves and thermostats on the Batteries tab.
+
+These are marked **New** in the panel. The maintainer's own system doesn't have this equipment, so it was built from the hub's published interface and tested against a simulated hub. If you have it, please [say how it goes](https://github.com/BayMax1990/WiserHeat-ControlPanel/issues), whether it works well or something looks wrong.
+
 ### Know before the batteries die
 
-The Batteries tab lists every radiator valve and room thermostat, worst first. It shows an estimated charge, the voltage, the hub's own rating and the signal strength. Devices that need new batteries soon, or have stopped reporting, are flagged, and a warning also appears on the room's card.
+The Batteries tab lists every radiator valve, room thermostat and other battery device, worst first. It shows an estimated charge, the voltage, the hub's own rating and the signal strength. Devices that need new batteries soon, or have stopped reporting, are flagged, and a warning also appears on the room's card.
 
 ### History the hub doesn't keep
 
@@ -128,6 +141,8 @@ The Diagnostics tab is for when something isn't right:
 - **Hub health**: Wi-Fi signal, uptime and dropped connections
 - **Radio network**: which smart plug relays signals for which valve
 - **Plug energy**: live power use and a running cost estimate
+- **Boiler, zones and hot water**: how long each has been on, today and this week
+- **Electric and underfloor heating**: power, energy and relay demand, on systems that have them
 - **Tidy-up**: unused schedules, devices not assigned to a room, and devices that have gone quiet
 - **Valves**: each valve's own reading, opening and firmware, plus a button lock
 

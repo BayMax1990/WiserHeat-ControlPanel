@@ -118,8 +118,9 @@ try { history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')); } catch { /* 
 
 let lastWifiRssi = null;
 
-// Each point: t = time, r = rooms {id: [temp, setpoint, demand%]}, h = boiler firing (1/0),
-// p = smart plugs {id: [watts, total Wh]}, w = hub Wi-Fi signal (dBm).
+// Each point: t = time, r = rooms {id: [temp, setpoint, demand%]}, h = boiler firing (1/0, any zone),
+// p = smart plugs {id: [watts, total Wh]}, w = hub Wi-Fi signal (dBm). Only where the hub has them:
+// z = each heating zone firing [1/0, …], hw = hot water on (1/0), a = electric heaters {id: [watts, total Wh]}.
 function recordHistory(domain) {
   const t = Date.now();
   const last = history[history.length - 1];
@@ -130,7 +131,12 @@ function recordHistory(domain) {
   }
   const p = {};
   for (const plug of domain.SmartPlug || []) p[plug.id] = [plug.InstantaneousDemand ?? 0, plug.CurrentSummationDelivered ?? null];
-  history.push({ t, r, h: domain.HeatingChannel?.[0]?.HeatingRelayState === 'On' ? 1 : 0, p, w: lastWifiRssi });
+  const zones = (domain.HeatingChannel || []).map((c) => (c.HeatingRelayState === 'On' ? 1 : 0));
+  const point = { t, r, h: zones.some(Boolean) ? 1 : 0, p, w: lastWifiRssi };
+  if (zones.length > 1) point.z = zones;
+  if (domain.HotWater?.length) point.hw = domain.HotWater.some((w) => w.HotWaterRelayState === 'On' || w.WaterHeatingState === 'On') ? 1 : 0;
+  if (domain.HeatingActuator?.length) point.a = Object.fromEntries(domain.HeatingActuator.map((a) => [a.id, [a.InstantaneousDemand ?? 0, a.CurrentSummationDelivered ?? null]]));
+  history.push(point);
   history = history.filter((p) => t - p.t <= historyKeepMs());
   // Write a new file and swap it in, so stopping mid-write can't leave a half-written history.
   const tmp = `${HISTORY_FILE}.tmp`;
@@ -190,6 +196,29 @@ function validDay(d) {
     d.DegreesC.every((c) => Number.isInteger(c) && (c === -200 || (c >= 50 && c <= 300)));
 }
 
+// On/off days (hot water, smart plugs) are a list of times, negative meaning "off at"; midnight can
+// be 2400. Level days (lights, shutters) are { Time, Level }, where 3000 and 4000 mean sunrise and sunset.
+const validHHMM = (t) => Number.isInteger(t) && ((t >= 0 && t <= 2359 && t % 100 < 60) || t === 2400);
+function cleanDeviceSchedule(type, days) {
+  if (!days || typeof days !== 'object') throw bad('No schedule to save');
+  const out = {};
+  for (const day of DAYS) {
+    const d = days[day];
+    if (d === undefined) continue;
+    if (type === 'OnOff') {
+      if (!Array.isArray(d) || d.length > 24 || !d.every((t) => validHHMM(Math.abs(t)))) throw bad(`${day}: that isn't a valid on/off schedule`);
+      out[day] = d;
+    } else {
+      const ok = d && Array.isArray(d.Time) && Array.isArray(d.Level) && d.Time.length === d.Level.length && d.Time.length <= 24 &&
+        d.Time.every((t) => validHHMM(t) || t === 3000 || t === 4000) && d.Level.every((l) => Number.isInteger(l) && l >= 0 && l <= 100);
+      if (!ok) throw bad(`${day}: that isn't a valid level schedule`);
+      out[day] = { Time: d.Time, Level: d.Level };
+    }
+  }
+  if (!Object.keys(out).length) throw bad('No schedule to save');
+  return out;
+}
+
 async function writeHeatingSchedules(changes) {
   const results = [];
   for (const { id, days } of changes) {
@@ -240,7 +269,17 @@ async function createSchedule({ name, copyFrom, days, rooms }) {
 
 async function restoreBackup(file) {
   const b = JSON.parse(fs.readFileSync(path.join(BACKUPS, file), 'utf8'));
-  const current = (await getSchedules()).Heating || [];
+  const all = await getSchedules();
+  const current = all.Heating || [];
+  // Hot water, light and blind schedules are put back too, where they still exist.
+  for (const type of ['OnOff', 'Level']) {
+    for (const s of b.schedules[type] || []) {
+      if (!(all[type] || []).some((x) => x.id === s.id)) continue;
+      const days = Object.fromEntries(DAYS.filter((d) => s[d] !== undefined).map((d) => [d, s[d]]));
+      try { await hub('PATCH', `/data/v2/schedules/${type}/${s.id}`, cleanDeviceSchedule(type, days)); }
+      catch (e) { console.warn(`[restore] ${type} schedule ${s.id}: ${e.message}`); }
+    }
+  }
   const idMap = {};
   for (const s of b.schedules.Heating || []) {
     const days = Object.fromEntries(DAYS.map((d) => [d, s[d]]));
@@ -335,7 +374,8 @@ const finished = (key) => trips.done[key] === 'ended' || trips.done[key] === 'ca
 function tripStatus(now = Date.now()) {
   const periods = allPeriods(now - DAY, now + 9 * DAY).filter((p) => trips.done[p.key] !== 'cancelled');
   const active = trips.running ? periods.find((p) => p.key === trips.running.key) || null : null;
-  const next = periods.find((p) => p.start > now && !finished(p.key) && p.key !== trips.running?.key) || null;
+  // The next trip can be months away; the shading only needs the week or so the timeline shows.
+  const next = allPeriods(now, now + 400 * DAY).find((p) => p.start > now && !finished(p.key) && trips.done[p.key] !== 'cancelled' && p.key !== trips.running?.key) || null;
   return {
     active,
     next,
@@ -985,6 +1025,10 @@ const ALLOWED = {
   System: ['RequestOverride', 'EcoModeEnabled', 'ComfortModeEnabled', 'AwayModeSetPointLimit', 'ValveProtectionEnabled', 'PreheatTimeLimit'],
   SmartPlug: ['Mode', 'RequestOutput', 'AwayAction'],
   Device: ['DeviceLockEnabled'],
+  // Equipment the maintainer's hub doesn't have; commands follow the Wiser libraries (see README, "New").
+  HotWater: ['Mode', 'RequestOverride', 'ManualWaterHeatingState'],
+  Light: ['Mode', 'RequestOverride'],
+  Shutter: ['Mode', 'RequestAction'],
 };
 function pick(obj, keys) {
   const out = {};
@@ -1044,6 +1088,20 @@ async function api(req, res, url) {
   if (m === 'PATCH' && (match = p.match(/^\/api\/plug\/(\d+)$/))) {
     const body = await readBody(req);
     return send(res, 200, await hub('PATCH', `/data/domain/SmartPlug/${match[1]}`, pick(body, ALLOWED.SmartPlug)));
+  }
+  // Hot water, lights and shutters, where the hub has them.
+  if (m === 'PATCH' && (match = p.match(/^\/api\/(hotwater|light|shutter)\/(\d+)$/))) {
+    const kind = { hotwater: 'HotWater', light: 'Light', shutter: 'Shutter' }[match[1]];
+    const body = await readBody(req);
+    return send(res, 200, await hub('PATCH', `/data/domain/${kind}/${match[2]}`, pick(body, ALLOWED[kind])));
+  }
+  // On/off schedules (hot water, smart plugs) and level schedules (lights, shutters). Backed up first.
+  if (m === 'PUT' && (match = p.match(/^\/api\/device-schedule\/(OnOff|Level)\/(\d+)$/))) {
+    const { days } = await readBody(req);
+    const body = cleanDeviceSchedule(match[1], days);
+    const backup = await backupSchedules(`Before changing ${match[1] === 'OnOff' ? 'the hot water' : 'a light or blind'} schedule`);
+    await hub('PATCH', `/data/v2/schedules/${match[1]}/${Number(match[2])}`, body);
+    return send(res, 200, { backup });
   }
 
   if (m === 'PUT' && p === '/api/schedules') {

@@ -7,7 +7,8 @@ See and control your whole home's Drayton Wiser heating on one screen:
 - boost rooms, switch modes, and control smart plugs;
 - battery warnings before a radiator valve goes flat;
 - temperature graphs and boiler statistics that the hub doesn't keep itself;
-- trips: plan when you're away, and Away mode switches on and off by itself, warming the house before you're back.
+- trips: plan when you're away, and Away mode switches on and off by itself, warming the house before you're back;
+- hot water, heating zones, electric and underfloor heating, lights and blinds, on systems that have them (new: feedback welcome).
 
 ## Getting started
 
