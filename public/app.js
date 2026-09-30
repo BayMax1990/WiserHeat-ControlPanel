@@ -358,7 +358,7 @@ function renderMain() {
       <button class="btn" data-act="open-settings">${icon('settings')}Open Settings</button></div>`;
     return;
   } else {
-    const views = { rooms: roomsView, batteries: batteriesView, diagnostics: diagnosticsView };
+    const views = { rooms: roomsView, batteries: batteriesView, history: historyView, diagnostics: diagnosticsView };
     if (hasLightsOrBlinds()) views.lights = lightsView; // otherwise the tab is hidden, and Schedules shows instead
     main.innerHTML = (views[state.view] || schedulesView)();
   }
@@ -1103,7 +1103,7 @@ function diagBoiler() {
       <div class="diag-tile ${boilerFiring() ? 'warm' : ''}">${icon('flame')}<div><b>${boilerFiring() ? 'Firing' : 'Idle'}</b><span>Boiler now</span><small>${zones().length > 1 ? esc(zonesSummary()) : `${boilerDemand()}% demand`}</small></div></div>
       <div class="diag-tile">${icon('clock')}<div><b>${fmtHours(today.on)}</b><span>Fired today</span><small>Since midnight</small></div></div>
       <div class="diag-tile">${icon('calendar-days')}<div><b>${fmtHours(weekOn)}</b><span>Fired this week</span><small>Last 7 days recorded</small></div></div>
-      <div class="diag-tile">${icon('settings-2')}<div><b>${esc(bs.FuelType || '—')}</b><span>${bs.ControlType?.includes('Relay') ? 'On/off relay control' : esc(bs.ControlType || '')}</span><small>Up to ${CPH[bs.CycleRate] || '—'} starts an hour, ${bs.OnOffHysteresis != null ? fmtT(bs.OnOffHysteresis) : '—'} switching band</small></div></div>
+      <div class="diag-tile">${icon('settings-2')}<div><b>${esc(bs.FuelType || '—')}</b><span>${bs.ControlType?.includes('Relay') ? 'On/off relay control' : esc(bs.ControlType || '')}</span><small>Up to ${CPH[bs.CycleRate] || '—'} starts an hour, ${bs.OnOffHysteresis != null ? fmtDiff(bs.OnOffHysteresis) : '—'} switching band</small></div></div>
     </div>
     ${diagZones()}
     <div class="diag-grid two">
@@ -1718,6 +1718,448 @@ function diagElectric() {
 }
 
 // ---------------------------------------------------------------------------
+// History tab: any day, week, month or year the panel has recorded, read from the server's daily
+// files. Periods are in this browser's time zone, which is the home's.
+
+const HOUR_MS = 36e5, DAY_MS = 864e5;
+const HIST_PERIODS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year']];
+const HIST_NOW = { day: 'Today', week: 'This week', month: 'This month', year: 'This year' };
+const HIST_LAST = { day: 'Same day last year', week: 'Same week last year', month: 'Same month last year', year: 'Last year' };
+// Points asked for, so each period gets a sensible step: 5 minutes, half an hour, 2 hours, a day.
+const HIST_POINTS = { day: 288, week: 336, month: 372, year: 365 };
+const hist = {
+  period: store.get('histPeriod', 'week'),
+  anchor: null, // a day in the period shown; null follows the current one
+  compare: store.get('histCompare', false),
+  room: store.get('histRoom', null),
+  data: null, // { key, cur, prev }: each { from, to, range: { step, points }, days }
+  loading: null, // the key being fetched
+  error: null,
+};
+
+function histBounds(anchor, period = hist.period) {
+  const a = new Date(anchor);
+  if (period === 'day') { const from = atTime(a, 0); return { from, to: addDays(from, 1) }; }
+  if (period === 'week') { const from = addDays(atTime(a, 0), -((a.getDay() + 6) % 7)); return { from, to: addDays(from, 7) }; }
+  if (period === 'month') return { from: new Date(a.getFullYear(), a.getMonth(), 1), to: new Date(a.getFullYear(), a.getMonth() + 1, 1) };
+  return { from: new Date(a.getFullYear(), 0, 1), to: new Date(a.getFullYear() + 1, 0, 1) };
+}
+const histCur = () => histBounds(hist.anchor || new Date());
+// Last year's version: 52 weeks back for a day or week, so weekdays line up; otherwise the same month or year.
+function histLastYear({ from, to }) {
+  if (hist.period === 'day' || hist.period === 'week') return { from: addDays(from, -364), to: addDays(to, -364) };
+  return { from: new Date(from.getFullYear() - 1, from.getMonth(), 1), to: new Date(to.getFullYear() - 1, to.getMonth(), 1) };
+}
+const histKey = (b) => `${hist.period} ${+b.from} ${hist.compare}`;
+
+function histStep(dir) {
+  const { from } = histCur();
+  const p = hist.period;
+  const next = p === 'day' ? addDays(from, dir) : p === 'week' ? addDays(from, 7 * dir)
+    : p === 'month' ? new Date(from.getFullYear(), from.getMonth() + dir, 1) : new Date(from.getFullYear() + dir, 0, 1);
+  hist.anchor = histBounds(next).to > new Date() ? null : next;
+  renderMain();
+}
+
+function histLabel({ from, to }) {
+  const f = (d, o) => d.toLocaleDateString('en-GB', o);
+  if (hist.period === 'day') return f(from, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (hist.period === 'week') {
+    const last = addDays(to, -1);
+    return `${f(from, { day: 'numeric', month: 'short', ...(from.getFullYear() !== last.getFullYear() ? { year: 'numeric' } : {}) })} to ${f(last, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  }
+  if (hist.period === 'month') return f(from, { month: 'long', year: 'numeric' });
+  return String(from.getFullYear());
+}
+
+async function loadHist() {
+  const cur = histCur();
+  const key = histKey(cur);
+  hist.loading = key;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const get = async ({ from, to }) => {
+    const end = Math.min(+to, Date.now());
+    const [range, days] = await Promise.all([
+      end > +from ? api('GET', `/api/history/range?from=${+from}&to=${end}&points=${HIST_POINTS[hist.period]}`) : { step: 0, points: [] },
+      +from < Date.now() ? api('GET', `/api/history/days?from=${isoDate(from)}&to=${isoDate(addDays(to, -1))}&tz=${encodeURIComponent(tz)}`) : { days: [] },
+    ]);
+    return { from: +from, to: +to, range, days: days.days };
+  };
+  try {
+    const [c, p] = await Promise.all([get(cur), hist.compare ? get(histLastYear(cur)) : null]);
+    if (hist.loading !== key) return; // something else was asked for meanwhile
+    hist.data = { key, cur: c, prev: p };
+    hist.error = null;
+  } catch (e) {
+    if (hist.loading !== key) return;
+    hist.error = e.message;
+  }
+  hist.loading = null;
+  if (state.view === 'history') renderMain();
+}
+
+// --- Adding up ----------------------------------------------------------------
+
+// Totals over a period's days. Times are in ms, energy in Wh, temperatures in tenths.
+function histTotals(days) {
+  const t = { c: 0, h: 0, hw: null, z: [], wh: null, temp: null };
+  let tw = 0, ts = 0;
+  for (const d of days) {
+    t.c += d.c;
+    t.h += d.h;
+    if (d.hw != null) t.hw = (t.hw || 0) + d.hw;
+    (d.z || []).forEach((v, i) => { t.z[i] = (t.z[i] || 0) + v; });
+    for (const k of ['p', 'a']) for (const v of Object.values(d[k] || {})) t.wh = (t.wh || 0) + v;
+    for (const v of Object.values(d.r || {})) if (v[0] != null) { tw += d.c; ts += d.c * v[0]; }
+  }
+  t.temp = tw ? Math.round(ts / tw) : null;
+  return t;
+}
+
+// Each room over a period: average, lowest and highest temperature, average target and heat demand.
+function histRoomStats(days) {
+  const out = {};
+  for (const d of days) {
+    for (const [id, v] of Object.entries(d.r || {})) {
+      const x = (out[id] ||= { tw: 0, ts: 0, lo: null, hi: null, sw: 0, ss: 0, dw: 0, ds: 0 });
+      if (v[0] != null) {
+        x.tw += d.c; x.ts += d.c * v[0];
+        x.lo = x.lo == null ? v[1] : Math.min(x.lo, v[1]);
+        x.hi = x.hi == null ? v[2] : Math.max(x.hi, v[2]);
+      }
+      if (v[3] != null) { x.sw += d.c; x.ss += d.c * v[3]; }
+      x.dw += d.c; x.ds += d.c * v[4];
+    }
+  }
+  for (const x of Object.values(out)) {
+    x.avg = x.tw ? Math.round(x.ts / x.tw) : null;
+    x.sp = x.sw ? Math.round(x.ss / x.sw) : null;
+    x.dem = x.dw ? x.ds / x.dw : null;
+  }
+  return out;
+}
+
+// A period split into the bars' groups: hours of a day, days of a week or month, months of a year.
+function histBuckets({ from, to }) {
+  const out = [];
+  if (hist.period === 'day') for (let h = 0; h < 24; h++) out.push({ from: +atTime(new Date(from), h), to: +atTime(new Date(from), h + 1), label: pad2(h) });
+  else if (hist.period === 'year') {
+    for (let m = 0; m < 12; m++) {
+      const a = new Date(new Date(from).getFullYear(), m, 1), b = new Date(a.getFullYear(), m + 1, 1);
+      out.push({ from: +a, to: +b, label: a.toLocaleDateString('en-GB', { month: 'short' }), month: m });
+    }
+  } else {
+    for (let d = new Date(from); d < to; d = addDays(d, 1)) {
+      out.push({ from: +d, to: +addDays(d, 1), key: isoDate(d), label: hist.period === 'week' ? d.toLocaleDateString('en-GB', { weekday: 'short' }) : String(d.getDate()) });
+    }
+  }
+  return out;
+}
+
+// Adds up one measure per bar. Days come from the day totals; a day's hours from the readings.
+// `fromDay(day)` and `fromPoint(point)` give the measure and the time recorded; a reading's
+// measure covers its own recorded time.
+function histSeries(part, fromDay, fromPoint) {
+  if (!part) return null;
+  const buckets = histBuckets({ from: new Date(part.from), to: new Date(part.to) });
+  if (hist.period === 'day') {
+    for (const b of buckets) {
+      b.v = 0; b.c = 0;
+      for (const p of part.range.points) if (p.t >= b.from && p.t < b.to) { b.v += fromPoint(p) ?? 0; b.c += p.c; }
+    }
+  } else {
+    const byDate = new Map(part.days.map((d) => [d.date, d]));
+    for (const b of buckets) {
+      b.v = 0; b.c = 0;
+      const days = b.key ? [byDate.get(b.key)] : part.days.filter((d) => Number(d.date.slice(5, 7)) - 1 === b.month);
+      for (const d of days.filter(Boolean)) { b.v += fromDay(d) ?? 0; b.c += d.c; }
+    }
+  }
+  return buckets;
+}
+
+// --- Drawing --------------------------------------------------------------------
+
+const fmtKwh = (wh) => (wh >= 10000 ? `${Math.round(wh / 1000)} kWh` : `${(wh / 1000).toFixed(wh >= 1000 ? 1 : 2)} kWh`);
+const histBucketName = (b) => {
+  const d = new Date(b.from);
+  if (hist.period === 'day') return `${clockOf(b.from)} to ${clockOf(b.to)}`;
+  if (hist.period === 'year') return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+};
+
+// Bars for one measure, with last year's beside them in grey. Lighter bars were only partly recorded.
+function histBars(cur, prev, { fmt, what, cls = '' }) {
+  const max = Math.max(...cur.map((b) => b.v), ...(prev || []).map((b) => b.v), 0);
+  if (!max) return `<div class="spark-empty">Nothing ${what} in this period</div>`;
+  const now = Date.now();
+  const every = cur.length > 24 ? 7 : cur.length > 12 ? 3 : 1;
+  const cols = cur.map((b, i) => {
+    const p = prev?.[i];
+    const partial = b.c < (Math.min(b.to, now) - b.from) * 0.9;
+    const tip = `<b>${esc(histBucketName(b))}</b><br>${esc(what[0].toUpperCase() + what.slice(1))}: ${b.c ? fmt(b.v) : 'nothing recorded'}`
+      + (partial && b.c ? `<br>Recorded ${fmtHours(b.c)} of it` : '')
+      + (prev ? `<br>${esc(HIST_LAST[hist.period])}: ${p?.c ? fmt(p.v) : 'nothing recorded'}` : '');
+    const h = (v) => (v ? Math.max(1.5, (v / max) * 100) : 0);
+    return `<div class="hc-col" data-tip="${esc(tip)}">
+        ${prev ? `<i class="hc-bar prev" style="height:${h(p?.v)}%"></i>` : ''}<i class="hc-bar ${partial ? 'partial' : ''}" style="height:${h(b.v)}%"></i>
+      </div>`;
+  }).join('');
+  const labels = cur.map((b, i) => `<span>${i % every === 0 ? esc(b.label) : ''}</span>`).join('');
+  return `<div class="hist-bars ${cls}">
+      <div class="hc-plot" style="--n:${cur.length}"><span class="hc-max">${fmt(max)}</span>${cols}</div>
+      <div class="hc-axis" style="--n:${cur.length}">${labels}</div>
+    </div>
+    <div class="spark-key hist-key"><span><i class="blk bar ${cls}"></i>${esc(histLabel(histCur()))}</span>${prev ? `<span><i class="blk bar prev"></i>${esc(HIST_LAST[hist.period])}</span>` : ''}</div>`;
+}
+
+// Where the time axis is labelled.
+function histTicks(from, to) {
+  const out = [];
+  if (hist.period === 'day') for (let h = 3; h < 24; h += 3) out.push({ t: +atTime(new Date(from), h), label: `${pad2(h)}:00` });
+  else if (hist.period === 'week') for (let i = 0; i < 7; i++) { const d = addDays(new Date(from), i); out.push({ t: +d, mid: +addDays(d, 1), label: d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' }) }); }
+  else if (hist.period === 'month') for (let d = 1; d <= 29; d += 7) { const x = new Date(new Date(from).getFullYear(), new Date(from).getMonth(), d); out.push({ t: +x, mid: +addDays(x, 1), label: x.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) }); }
+  else for (let m = 0; m < 12; m++) { const x = new Date(new Date(from).getFullYear(), m, 1); out.push({ t: +x, mid: +new Date(x.getFullYear(), m + 1, 1), label: x.toLocaleDateString('en-GB', { month: 'short' }) }); }
+  return out.filter((k) => k.t >= from && k.t < to);
+}
+
+function histWhen(p, step) {
+  const d = new Date(p.t);
+  const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  if (step >= DAY_MS) return day;
+  const span = step >= HOUR_MS ? `${clockOf(p.t)} to ${clockOf(p.t + p.s)}` : clockOf(p.t);
+  return hist.period === 'day' ? span : `${day}, ${span}`;
+}
+
+// A room's temperature against its target over the period, with the heating shaded, and last
+// year's temperature in grey. Longer periods also show each step's lowest and highest reading.
+function histTempChart(d, id) {
+  const { from, to } = d.cur, span = to - from, step = d.cur.range.step;
+  const pts = d.cur.range.points.filter((p) => p.r[id]);
+  const shift = d.prev ? from - d.prev.from : 0;
+  const prevPts = d.prev ? d.prev.range.points.filter((p) => p.r[id] && p.r[id][0] !== NO_READING).map((p) => ({ ...p, t: p.t + shift })) : [];
+  const vals = [];
+  for (const p of pts) {
+    const v = p.r[id];
+    if (v[0] !== NO_READING) vals.push(v[3] ?? v[0], v[4] ?? v[0]);
+    if (v[1] >= MIN_T) vals.push(v[1]);
+  }
+  for (const p of prevPts) vals.push(p.r[id][0]);
+  if (vals.length < 2) return `<div class="spark-empty tall">No temperatures recorded for this room in this period</div>`;
+  let lo = Math.floor((Math.min(...vals) - 5) / 10) * 10, hi = Math.ceil((Math.max(...vals) + 5) / 10) * 10; // half a degree of headroom
+  if (hi - lo < 40) { const mid = Math.round((hi + lo) / 20) * 10; lo = mid - 20; hi = mid + 20; }
+  const grid = (hi - lo) / 10 <= 5 ? 10 : (hi - lo) / 10 <= 10 ? 20 : 50;
+  const W = 1000, H = 240;
+  const x = (t) => (((t - from) / span) * W).toFixed(1);
+  const y = (v) => (H - ((v - lo) / (hi - lo)) * H).toFixed(1);
+  const mid = (p) => p.t + p.s / 2;
+  const joined = (a, b) => b.t <= a.t + a.s * 1.5; // a gap longer than that is time not recorded
+
+  let heat = '', band = '', temp = '', target = '', last = '';
+  const bandSeg = [];
+  const flushBand = () => {
+    if (bandSeg.length > 1) band += `<path class="hl-band" d="M${bandSeg.map((p) => `${x(mid(p))},${y(p.r[id][4])}`).join('L')}L${[...bandSeg].reverse().map((p) => `${x(mid(p))},${y(p.r[id][3])}`).join('L')}Z"/>`;
+    bandSeg.length = 0;
+  };
+  let prevT = null, prevS = null;
+  pts.forEach((p, i) => {
+    const v = p.r[id];
+    const before = pts[i - 1];
+    const cont = before && joined(before, p);
+    if (v[2] > 0) heat += `<rect class="hl-heat" x="${x(p.t)}" y="0" width="${Math.max(0.5, x(p.t + p.s) - x(p.t)).toFixed(1)}" height="${H}" fill-opacity="${(0.06 + 0.3 * Math.min(v[2], 100) / 100).toFixed(2)}"/>`;
+    if (v[0] !== NO_READING) {
+      temp += `${cont && prevT ? 'L' : 'M'}${x(mid(p))},${y(v[0])}`;
+      prevT = true;
+      if (step >= 2 * HOUR_MS && v[3] != null) { if (!cont) flushBand(); bandSeg.push(p); }
+    } else { prevT = false; flushBand(); }
+    if (v[1] >= MIN_T) {
+      if (step <= 30 * 60e3) target += cont && prevS ? `H${x(p.t)}V${y(v[1])}H${x(p.t + p.s)}` : `M${x(p.t)},${y(v[1])}H${x(p.t + p.s)}`;
+      else target += `${cont && prevS ? 'L' : 'M'}${x(mid(p))},${y(v[1])}`;
+      prevS = true;
+    } else prevS = false;
+  });
+  flushBand();
+  prevPts.forEach((p, i) => { last += `${i && joined(prevPts[i - 1], p) ? 'L' : 'M'}${x(mid(p))},${y(p.r[id][0])}`; });
+
+  const lines = [];
+  for (let v = lo + grid; v < hi; v += grid) lines.push(v);
+  const ticks = histTicks(from, to);
+  const nowX = Date.now() < to ? x(Date.now()) : null;
+
+  // Hover: slices across the period, each showing the nearest reading (and last year's).
+  const slices = Math.min(pts.length, 120);
+  let hover = '';
+  for (let i = 0; i < slices; i++) {
+    const a = from + (span * i) / slices, b = from + (span * (i + 1)) / slices;
+    const inside = pts.filter((p) => mid(p) >= a && mid(p) < b);
+    if (!inside.length) continue;
+    const p = inside[Math.floor(inside.length / 2)], v = p.r[id];
+    const q = prevPts.find((o) => Math.abs(mid(o) - mid(p)) <= p.s);
+    const range = v[3] != null && step >= 2 * HOUR_MS ? ` <small>(${fmtT(v[3])} to ${fmtT(v[4])})</small>` : '';
+    hover += `<rect x="${x(a)}" y="0" width="${(x(b) - x(a)).toFixed(1)}" height="${H}" fill="transparent" data-tip="${esc(`<b>${histWhen(p, step)}</b><br>Room ${fmtT(v[0])}${range}, target ${fmtT(v[1])}${v[2] ? `<br>Heating ${Math.round(v[2])}%` : ''}${d.prev ? `<br>Last year ${q ? fmtT(q.r[id][0]) : 'not recorded'}` : ''}`)}"/>`;
+  }
+  const pct = (t) => `${(((t - from) / span) * 100).toFixed(2)}%`;
+  return `<div class="hist-line">
+      <div class="hl-plot">
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="Temperature over the period">
+          ${lines.map((v) => `<line class="hl-grid" x1="0" x2="${W}" y1="${y(v)}" y2="${y(v)}" vector-effect="non-scaling-stroke"/>`).join('')}
+          ${ticks.map((k) => `<line class="hl-grid" x1="${x(k.t)}" x2="${x(k.t)}" y1="0" y2="${H}" vector-effect="non-scaling-stroke"/>`).join('')}
+          ${heat}${band}
+          <path class="hl-last" d="${last}" vector-effect="non-scaling-stroke"/>
+          <path class="hl-target" d="${target}" vector-effect="non-scaling-stroke"/>
+          <path class="hl-temp" d="${temp}" vector-effect="non-scaling-stroke"/>
+          ${nowX ? `<line class="hl-now" x1="${nowX}" x2="${nowX}" y1="0" y2="${H}" vector-effect="non-scaling-stroke"/>` : ''}
+          ${hover}
+        </svg>
+        ${lines.map((v) => `<span class="hl-y" style="top:${((hi - v) / (hi - lo)) * 100}%">${fmtT(v)}</span>`).join('')}
+      </div>
+      <div class="hl-axis">${ticks.map((k) => `<span style="left:${k.mid ? pct((k.t + k.mid) / 2) : pct(k.t)}">${esc(k.label)}</span>`).join('')}</div>
+    </div>
+    <div class="spark-key hist-key">
+      <span><i></i>Room</span><span><i class="dash"></i>Target</span><span><i class="blk"></i>Heating</span>
+      ${step >= 2 * HOUR_MS ? '<span><i class="blk band"></i>Lowest to highest</span>' : ''}
+      ${d.prev ? `<span><i class="last"></i>${esc(HIST_LAST[hist.period])}</span>` : ''}
+    </div>`;
+}
+
+const fmtDiff = (c) => `${(Math.abs(c) / 10).toFixed(1)}°`;
+const fmtHoursShort = (ms) => `${(ms / HOUR_MS).toFixed(ms < 10 * HOUR_MS ? 1 : 0)} h`;
+
+// "0.5° warmer than last year", "12% more than last year". Amounts are compared per hour recorded,
+// so a period that's only half over, or that the panel missed part of, is still a fair comparison.
+function histVs(tot, prev, key) {
+  const last = HIST_LAST[hist.period].toLowerCase();
+  if (!prev?.c || prev[key] == null) return `${HIST_LAST[hist.period]}: nothing recorded`;
+  if (key === 'temp') {
+    const diff = tot.temp - prev.temp;
+    return diff ? `${fmtDiff(diff)} ${diff > 0 ? 'warmer' : 'cooler'} than ${last} (${fmtT(prev.temp)})` : `The same as ${last}`;
+  }
+  const rate = (t) => (t[key] || 0) / t.c;
+  if (!rate(prev)) return `${HIST_LAST[hist.period]}: none`;
+  const change = Math.round(((rate(tot) - rate(prev)) / rate(prev)) * 100);
+  return `${change === 0 ? 'The same as' : `${Math.abs(change)}% ${change > 0 ? 'more' : 'less'} than`} ${last}`;
+}
+
+function histDeviceName(key, id) {
+  if (key === 'p') {
+    const plug = state.domain.SmartPlug?.find((p) => p.id === Number(id));
+    return plug ? plug.Name : `Smart plug ${id} (no longer on the hub)`;
+  }
+  const room = state.domain.Room.find((r) => (r.HeatingActuatorIds || []).includes(Number(id)));
+  return room ? `Electric heating, ${roomName(room)}` : `Electric heater ${id}`;
+}
+
+function historyView() {
+  const cur = histCur();
+  const key = histKey(cur);
+  if (hist.data?.key !== key && hist.loading !== key) loadHist();
+  const d = hist.data;
+  const first = state.settings?.history?.first;
+  const atStart = first && isoDate(cur.from) <= first;
+  const controls = `<div class="hist-controls">
+      <div class="seg" role="group" aria-label="Period">${HIST_PERIODS.map(([v, l]) => `<button data-act="hist-period" data-v="${v}" aria-pressed="${hist.period === v}">${l}</button>`).join('')}</div>
+      <div class="hist-nav">
+        <button class="icon-btn" data-act="hist-step" data-d="-1" ${atStart ? 'disabled' : ''} aria-label="Earlier" title="Earlier">${icon('chevron-left')}</button>
+        <b>${esc(histLabel(cur))}</b>
+        <button class="icon-btn" data-act="hist-step" data-d="1" ${hist.anchor ? '' : 'disabled'} aria-label="Later" title="Later">${icon('chevron-right')}</button>
+        ${hist.anchor ? `<button class="btn small" data-act="hist-now">${HIST_NOW[hist.period]}</button>` : ''}
+      </div>
+      <span class="spacer"></span>
+      ${switchHTML('hist-compare', hist.compare, 'calendar-clock', 'Compare with last year', `Shows ${HIST_LAST[hist.period].toLowerCase()} beside this one`)}
+    </div>`;
+  const head = `<h2 class="page-title">${icon('chart-line')}History</h2>${controls}`;
+  if (!d) {
+    return `<div class="history-page">${head}${hist.error ? `<div class="diag-panel"><p class="muted">${esc(hist.error)}</p></div>` : `<div class="loading">${icon('chart-line')}<p>Reading the recordings…</p></div>`}</div>`;
+  }
+  const stale = d.key !== key;
+  const tot = histTotals(d.cur.days), prevTot = d.prev ? histTotals(d.prev.days) : null;
+  const periodMs = Math.min(d.cur.to, Date.now()) - d.cur.from;
+  const nothing = !tot.c && !d.cur.range.points.length;
+  if (nothing) {
+    return `<div class="history-page ${stale ? 'stale' : ''}">${head}
+      <div class="diag-panel hist-empty">${icon('clock')}<div><b>Nothing recorded in this period</b>
+        <p>The panel records while it's running${first ? `. Its recordings start on ${esc(fmtDay(new Date(first + 'T12:00')))}` : ''}.</p></div></div></div>`;
+  }
+
+  // Tiles: the period's headline numbers, and last year's beside them.
+  const days = Math.max(tot.c / DAY_MS, 1 / 24);
+  const tiles = [
+    ['warm', 'flame', fmtHours(tot.h), 'Boiler fired', prevTot ? histVs(tot, prevTot, 'h') : hist.period === 'day' ? 'Over the day' : `About ${fmtHours(tot.h / days)} a day`],
+    ['', 'thermometer', fmtT(tot.temp), 'Average indoors', prevTot ? histVs(tot, prevTot, 'temp') : 'Across all rooms, while recorded'],
+  ];
+  if (tot.hw != null) tiles.push(['', 'droplets', fmtHours(tot.hw), 'Hot water on', prevTot ? histVs(tot, prevTot, 'hw') : hist.period === 'day' ? 'Over the day' : `About ${fmtHours(tot.hw / days)} a day`]);
+  const price = state.settings?.pricePerKwh ?? 25;
+  if (tot.wh != null) tiles.push(['', 'zap', fmtKwh(tot.wh), `Electricity, about £${((tot.wh / 1000) * price / 100).toFixed(2)}`, prevTot ? histVs(tot, prevTot, 'wh') : 'Smart plugs and electric heaters']);
+  const cover = tot.c < periodMs * 0.95
+    ? `<p class="diag-foot hist-cover">${icon('circle-alert')}The panel recorded ${fmtDur(tot.c / 1000)} of this ${hist.period === 'day' ? 'day' : hist.period}, so totals only cover that time.</p>` : '';
+
+  // Rooms, in the same order as the other tabs; rooms no longer on the hub only if they have readings.
+  const { loose, groups } = roomGroups();
+  const ordered = [...loose, ...groups.flatMap((g) => g.list)];
+  if (!roomById(hist.room)) hist.room = ordered[0]?.id ?? null;
+  const stats = histRoomStats(d.cur.days), prevStats = d.prev ? histRoomStats(d.prev.days) : null;
+  const gone = Object.keys(stats).filter((id) => !roomById(id) && stats[id].avg != null).map((id) => ({ id: Number(id), Name: `Room ${id} (no longer on the hub)` }));
+  const row = (r) => {
+    const s = stats[r.id] || {};
+    const ps = prevStats?.[r.id];
+    const diff = ps?.avg != null && s.avg != null ? s.avg - ps.avg : null;
+    return `<tr class="${r.id === hist.room ? 'on' : ''}" ${roomById(r.id) ? `data-act="hist-room-pick" data-room="${r.id}" tabindex="0" data-tip="Show on the graph"` : ''}>
+      <td>${roomById(r.id) ? icon(roomIcon(r)) : ''}${esc(roomById(r.id) ? roomName(r) : r.Name)}</td>
+      <td><b>${fmtT(s.avg)}</b></td><td>${fmtT(s.lo)}</td><td>${fmtT(s.hi)}</td>
+      <td>${s.sp == null ? (s.dw ? 'Off' : '—') : fmtT(s.sp)}</td><td>${s.dem == null ? '—' : `${Math.round(s.dem)}%`}</td>
+      ${prevStats ? `<td>${ps?.avg == null ? '—' : `${fmtT(ps.avg)} <small class="${diff > 0 ? 'up' : diff < 0 ? 'down' : ''}">${diff ? `${diff > 0 ? '+' : '−'}${fmtDiff(diff)}` : ''}</small>`}</td>` : ''}
+    </tr>`;
+  };
+
+  // Bars: boiler, zones, hot water and energy.
+  const boiler = histBars(histSeries(d.cur, (x) => x.h, (p) => p.h * p.c), histSeries(d.prev, (x) => x.h, (p) => p.h * p.c), { fmt: fmtHours, what: 'boiler firing' });
+  const hwBars = tot.hw != null
+    ? histBars(histSeries(d.cur, (x) => x.hw, (p) => (p.hw ?? 0) * p.c), histSeries(d.prev, (x) => x.hw, (p) => (p.hw ?? 0) * p.c), { fmt: fmtHours, what: 'hot water heating', cls: 'cold' }) : '';
+  const pointWh = (p) => ['p', 'a'].reduce((a, k) => a + Object.values(p[k] || {}).reduce((b, v) => b + (v[0] * p.c) / HOUR_MS, 0), 0);
+  const dayWh = (x) => ['p', 'a'].reduce((a, k) => a + Object.values(x[k] || {}).reduce((b, v) => b + v, 0), 0);
+  const energyBars = tot.wh != null ? histBars(histSeries(d.cur, dayWh, pointWh), histSeries(d.prev, dayWh, pointWh), { fmt: fmtKwh, what: 'electricity used', cls: 'energy' }) : '';
+  const zoneTotals = tot.z.length > 1 ? `<h3 style="margin-top:18px">Heating zones</h3><div class="hbars">${tot.z.map((v, i) => `<div class="hbar"><span>${zoneName(i)}</span><div><i style="width:${(v / Math.max(...tot.z, 1)) * 100}%"></i></div><b>${fmtHoursShort(v)}</b></div>`).join('')}</div>` : '';
+  const devices = [];
+  for (const k of ['p', 'a']) {
+    const sum = {}, prevSum = {};
+    for (const x of d.cur.days) for (const [id, v] of Object.entries(x[k] || {})) sum[id] = (sum[id] || 0) + v;
+    for (const x of d.prev?.days || []) for (const [id, v] of Object.entries(x[k] || {})) prevSum[id] = (prevSum[id] || 0) + v;
+    for (const [id, wh] of Object.entries(sum)) devices.push({ name: histDeviceName(k, id), wh, prev: d.prev ? prevSum[id] ?? null : undefined });
+  }
+  devices.sort((a, b) => b.wh - a.wh);
+
+  return `<div class="history-page ${stale ? 'stale' : ''}">${head}
+    <div class="diag-tiles">${tiles.map(([lvl, ico, big, label, sub]) => `<div class="diag-tile ${lvl}">${icon(ico)}<div><b>${big}</b><span>${label}</span><small>${esc(sub)}</small></div></div>`).join('')}</div>
+    ${cover}
+    <div class="diag-panel">
+      <div class="hist-panel-head"><h3>Room temperature</h3>
+        <select class="hist-room" data-act="hist-room" aria-label="Room">${ordered.map((r) => `<option value="${r.id}" ${r.id === hist.room ? 'selected' : ''}>${esc(roomName(r))}</option>`).join('')}</select></div>
+      ${hist.room != null ? histTempChart(d, hist.room) : '<p class="muted">No rooms on the hub.</p>'}
+    </div>
+    <div class="diag-panel">
+      <h3>Rooms</h3>
+      <div class="table-scroll"><table class="diag-table hist-rooms">
+        <thead><tr><th>Room</th><th>Average</th><th>Lowest</th><th>Highest</th><th data-tip="The average target while the room wasn't off">Target</th><th data-tip="How hard the room asked for heat, on average">Heat demand</th>${prevStats ? `<th>${esc(HIST_LAST[hist.period])}</th>` : ''}</tr></thead>
+        <tbody>${[...ordered, ...gone].map(row).join('')}</tbody>
+      </table></div>
+      <p class="diag-foot">Click a room to show it on the graph.</p>
+    </div>
+    <div class="diag-grid ${hwBars ? 'two' : ''}">
+      <div class="diag-panel"><h3>Boiler firing</h3>${boiler}${zoneTotals}</div>
+      ${hwBars ? `<div class="diag-panel"><h3>Hot water</h3>${hwBars}</div>` : ''}
+    </div>
+    ${energyBars ? `<div class="diag-grid two">
+      <div class="diag-panel"><h3>Electricity</h3>${energyBars}</div>
+      <div class="diag-panel"><h3>By device</h3>
+        <div class="table-scroll"><table class="diag-table"><thead><tr><th>Device</th><th>Used</th><th>Cost</th>${d.prev ? `<th>${esc(HIST_LAST[hist.period])}</th>` : ''}</tr></thead>
+        <tbody>${devices.map((x) => `<tr><td>${esc(x.name)}</td><td>${fmtKwh(x.wh)}</td><td>£${((x.wh / 1000) * price / 100).toFixed(2)}</td>${x.prev !== undefined ? `<td>${x.prev == null ? '—' : fmtKwh(x.prev)}</td>` : ''}</tr>`).join('')}</tbody></table></div>
+        <p class="diag-foot">Costs at ${price}p per kWh, the price in Settings.</p>
+      </div>
+    </div>` : ''}
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Scheduled away ("trips"). The server switches the hub's Away mode on as you leave and off before
 // you're back, so these work with the page closed. Times are in this browser's (the home's) time zone.
 
@@ -2294,8 +2736,11 @@ const SETTINGS_SECTIONS = [
   ['s-rec', 'clock', 'Recording'],
   ['s-heating', 'heater', 'Heating system'],
 ];
+const START_CHOICES = [['', 'Where I left off'], ['schedules', 'Schedules'], ['rooms', 'Rooms'], ['lights', 'Lights & blinds'], ['batteries', 'Batteries'], ['history', 'History'], ['diagnostics', 'Diagnostics']];
 const INTERVALS = [[60, '1 min'], [120, '2 min'], [300, '5 min'], [600, '10 min']];
-const KEEPS = [[24, '1 day'], [72, '3 days'], [168, '7 days'], [336, '14 days'], [720, '30 days']];
+const DETAILS = [[3, '3 months'], [6, '6 months'], [12, '1 year']];
+const KEEPS = [[1, '1 year'], [2, '2 years'], [5, '5 years'], [10, '10 years'], [0, 'For ever']];
+const fmtBytes = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} kB`);
 
 function choiceSeg(key, opts, cur, label, unit) {
   if (cur != null && !opts.some(([v]) => v === cur)) opts = [...opts, [cur, `${cur} ${unit}`]].sort((a, b) => a[0] - b[0]);
@@ -2328,6 +2773,12 @@ function settingsView() {
       <div class="setting">
         <div><b>Appearance</b><p>Light, dark, or the same as your computer. The button next to the cog switches it too. This browser remembers the choice.</p></div>
         <div class="seg" role="group" aria-label="Appearance">${[['system', 'Follow computer'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button data-act="theme-set" data-v="${k}" aria-pressed="${theme === k}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="setting">
+        <div><b>Open on</b><p>The page the panel shows when it's opened, on every device. A link or phone shortcut to a particular page still opens that page.</p></div>
+        <select class="set-input set-select" data-set="startView" data-k="set-start" aria-label="Open on">${START_CHOICES
+          .filter(([v]) => v !== 'lights' || (state.domain && hasLightsOrBlinds()) || st.startView === 'lights')
+          .map(([v, l]) => `<option value="${v}" ${(st.startView || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       </div>
       <div class="setting">
         <div><b>Electricity price</b><p>Used for the smart plug cost estimates in Diagnostics.</p></div>
@@ -2363,16 +2814,21 @@ function settingsView() {
     ${sectionHead('s-phone', 'smartphone', 'Add to your phone', 'Put the panel on your home screen, with its own icon, so it opens like an app straight to Rooms.')}
     <div class="diag-panel">${phonePanel(st)}</div>
 
-    ${sectionHead('s-rec', 'clock', 'Recording', "The hub doesn't keep any history, so this panel records temperatures while it's running. The graphs and boiler statistics come from these recordings.")}
+    ${sectionHead('s-rec', 'clock', 'Recording', "The hub doesn't keep any history, so this panel records temperatures while it's running. The graphs, boiler statistics and History tab come from these recordings.")}
     <div class="diag-panel">
       <div class="setting">
-        <div><b>Record every</b><p>Recording more often gives smoother graphs, but a bigger history file.</p></div>
+        <div><b>Record every</b><p>Recording more often gives smoother graphs, but bigger files.</p></div>
         ${choiceSeg('historyIntervalSeconds', INTERVALS, st.historyIntervalSeconds, 'Record every', 's')}
       </div>
       <div class="setting">
-        <div><b>Keep recordings for</b><p>Older readings are deleted. The graphs show up to the last 7 days.</p></div>
-        ${choiceSeg('historyKeepHours', KEEPS, st.historyKeepHours, 'Keep recordings for', 'h')}
+        <div><b>Full detail for</b><p>Every reading is kept this long. After that, each half hour's readings are averaged into one, which is plenty for graphs of past days, months and years, and takes a fifteenth of the space.</p></div>
+        ${choiceSeg('historyDetailMonths', DETAILS, st.historyDetailMonths, 'Full detail for', 'months')}
       </div>
+      <div class="setting">
+        <div><b>Keep history for</b><p>Recordings older than this are deleted.</p></div>
+        ${choiceSeg('historyKeepYears', KEEPS, st.historyKeepYears, 'Keep history for', 'years')}
+      </div>
+      <p class="diag-foot">${st.history?.first ? `Recordings go back to ${esc(fmtDay(new Date(st.history.first + 'T12:00')))}, and take up ${fmtBytes(st.history.bytes)}.` : 'Nothing recorded yet.'} Each file is only ever added to, never rewritten, so recording is gentle on SD cards.</p>
     </div>
 
     ${heating}
@@ -3538,7 +3994,17 @@ document.addEventListener('click', (e) => {
     case 'refresh': return refresh();
     case 'open-settings': state.view = 'settings'; store.set('view', state.view); renderAll(); return scrollTo(0, 0);
     case 'theme-set': setTheme(b.dataset.v); return renderMain();
-    case 'set-choice': return saveSettings({ [b.dataset.key]: Number(b.dataset.v) }, 'Saved');
+    case 'set-choice': {
+      const v = Number(b.dataset.v), was = state.settings?.[b.dataset.key];
+      if (b.dataset.key === 'historyKeepYears' && v && (!was || v < was)
+        && !confirm(`Delete recordings older than ${v} ${v === 1 ? 'year' : 'years'}? This can't be undone.`)) return;
+      return saveSettings({ [b.dataset.key]: v }, 'Saved');
+    }
+    case 'hist-period': hist.period = b.dataset.v; store.set('histPeriod', hist.period); return renderMain();
+    case 'hist-step': return histStep(Number(b.dataset.d));
+    case 'hist-now': hist.anchor = null; return renderMain();
+    case 'hist-compare': hist.compare = !hist.compare; store.set('histCompare', hist.compare); return renderMain();
+    case 'hist-room-pick': hist.room = Number(b.dataset.room); store.set('histRoom', hist.room); return renderMain();
     case 'set-test': return testHubConnection();
     case 'pick-icon': return openIconPicker(Number(b.dataset.room));
     case 'hw-mode': return hwSetMode(b.dataset.v);
@@ -3663,10 +4129,19 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.dataset.set === 'title' && state.setupStep == null) return saveSettings({ title: el.value }, 'Title saved');
+  if (el.dataset.set === 'startView') {
+    const label = START_CHOICES.find(([v]) => v === el.value)?.[1];
+    return saveSettings({ startView: el.value }, el.value ? `The panel will open on ${label}` : 'The panel will open where you left off');
+  }
   if (el.dataset.set === 'pricePerKwh' || el.dataset.act === 'price') {
     const v = Number(el.value);
     if (v > 0) saveSettings({ pricePerKwh: v }, `Unit price set to ${v}p per kWh`);
     return;
+  }
+  if (el.dataset.act === 'hist-room') {
+    hist.room = Number(el.value);
+    store.set('histRoom', hist.room);
+    return renderMain();
   }
   if (el.dataset.act === 'light-dim') {
     const v = Number(el.value);
@@ -3700,6 +4175,7 @@ document.addEventListener('keydown', (e) => {
     $('.setup-foot .btn.primary')?.click();
     return;
   }
+  if (e.key === 'Enter' && e.target.dataset?.act === 'hist-room-pick') { e.target.click(); return; }
   if (e.key === 'Enter' && (e.target.dataset?.set === 'hubIp' || e.target.dataset?.set === 'secret')) { e.preventDefault(); saveHubConnection(); return; }
   const h = e.target.closest?.('#main .drag-handle');
   if (h && /^Arrow(Up|Down|Left|Right)$/.test(e.key)) {
@@ -3772,11 +4248,18 @@ darkQuery.addEventListener('change', updateThemeBtn);
 updateThemeBtn();
 
 // Loads everything once signed in. Runs again after signing back in, but only sets the timers once.
-let booted = false;
+let booted = false, startChosen = false;
 async function boot() {
   renderAll();
   await loadSettings();
   registerServiceWorker();
+  // The page to open on, once: the one in the address, the one chosen in Settings, Rooms for the
+  // phone app, or wherever this browser was left.
+  if (!startChosen) {
+    startChosen = true;
+    const start = launchView || state.settings?.startView || (launchedApp ? 'rooms' : null);
+    if (start) { state.view = start; store.set('view', start); renderHeader(); }
+  }
   if (state.settings && !hubConfigured()) { state.setupStep = 0; renderAll(); return startTimers(); }
   await refresh();
   loadHistory();
@@ -3788,14 +4271,16 @@ async function boot() {
 // ---------------------------------------------------------------------------
 // The phone app ("Add to Home Screen")
 
-// Opened from the app icon or one of its long-press shortcuts: ?view=rooms, ?action=boost, and so on.
-const VIEWS = ['schedules', 'rooms', 'lights', 'batteries', 'diagnostics', 'settings'];
-let launchAction = null;
+// Opened from the app icon (?launch=app) or one of its long-press shortcuts: ?view=rooms,
+// ?action=boost, and so on. A page named in the address wins over the one chosen in Settings.
+const VIEWS = ['schedules', 'rooms', 'lights', 'batteries', 'history', 'diagnostics', 'settings'];
+let launchAction = null, launchView = null, launchedApp = false;
 (function readLaunchUrl() {
   const q = new URLSearchParams(location.search);
-  if (!q.has('view') && !q.has('action')) return;
-  if (VIEWS.includes(q.get('view'))) { state.view = q.get('view'); store.set('view', state.view); }
+  if (!q.has('view') && !q.has('action') && !q.has('launch')) return;
+  if (VIEWS.includes(q.get('view'))) { launchView = state.view = q.get('view'); store.set('view', state.view); }
   if (q.get('action') === 'boost') launchAction = 'boost';
+  launchedApp = q.get('launch') === 'app';
   history.replaceState(null, '', location.pathname); // so a reload doesn't repeat it
 })();
 
@@ -3858,7 +4343,7 @@ function phonePanel(st) {
       <li>Choose <b>Create shortcut</b>, then <b>Add</b>. Not <b>Install</b>: on this address it says "This app cannot be installed".</li></ol>
       <p class="phone-note">The shortcut opens the panel in Chrome. Chrome only installs full apps, with their own window and offline screen, from secure <code>https://</code> addresses, and this one is <code>http://</code>. To get one, open the panel through Tailscale Serve; the README explains how.</p></div></div>`;
   } else {
-    how = `<div class="setting"><div><b>On your phone</b><p>Open ${here} in your phone's browser, on your home Wi-Fi. Then, on an iPhone, tap <b>Share → Add to Home Screen</b>. On Android, tap <b>⋮ → Add to Home screen</b>${isSecureContext ? '' : ', then <b>Create shortcut</b> (this address isn\'t <code>https://</code>, so Android can\'t install it as a full app)'}. Once added, it opens straight to Rooms, and long-pressing its icon gives shortcuts.</p></div></div>`;
+    how = `<div class="setting"><div><b>On your phone</b><p>Open ${here} in your phone's browser, on your home Wi-Fi. Then, on an iPhone, tap <b>Share → Add to Home Screen</b>. On Android, tap <b>⋮ → Add to Home screen</b>${isSecureContext ? '' : ', then <b>Create shortcut</b> (this address isn\'t <code>https://</code>, so Android can\'t install it as a full app)'}. Once added, it opens on Rooms (or the page chosen above, under Open on), and long-pressing its icon gives shortcuts.</p></div></div>`;
   }
   return how;
 }
@@ -3875,6 +4360,7 @@ function startTimers() {
     refresh();
   }, POLL_MS);
   setInterval(loadHistory, 120_000);
+  setInterval(() => { if (state.view === 'history' && !hist.anchor && !document.hidden) loadHist(); }, 120_000);
   setInterval(() => { if (state.view === 'diagnostics' && !document.hidden) loadDiagnostics(); }, 60_000);
   setInterval(updateNow, 15_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

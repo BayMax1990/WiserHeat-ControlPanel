@@ -63,7 +63,7 @@ The panel keeps everything in `/data` inside the container:
 |---|---|
 | `config.json` | Settings, including the hub secret and the stored password hash. Keep this private. |
 | `layout.json` | Room order and groups |
-| `history.json` | Recorded temperatures, for the graphs and boiler statistics |
+| `history/` | Recorded temperatures, one file per day, for the graphs, boiler statistics and History tab |
 | `backups/` | A copy of every schedule, saved before each change |
 
 The examples above keep this in a Docker volume called `wiserheat-data`, which survives updates. To keep it in a folder you choose instead, for example so your NAS backs it up, replace the volume with a folder:

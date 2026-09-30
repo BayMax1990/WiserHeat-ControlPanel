@@ -26,6 +26,7 @@ The first time, a short setup screen finds your hub on the network and walks you
 - Sort rooms into groups like Upstairs and Downstairs with drag and drop
 - Battery warnings before a radiator valve goes flat
 - Temperature graphs and boiler statistics that the hub doesn't keep itself
+- Years of history: any day, week, month or year, side by side with last year *(new)*
 - An automatic backup before every schedule change
 - Plan trips away, and the heating switches to Away and back by itself
 - Hot water, heating zones, electric and underfloor heating, lights and blinds, if your system has them *(new)*
@@ -148,6 +149,19 @@ The Wiser hub only knows what's happening right now. While the panel is running,
 - which rooms call for heat the most
 - how quickly each room warms up
 
+### Years of history *(new)*
+
+The **History** tab shows any day, week, month or year the panel has recorded:
+
+- each room's temperature against its target, with the heating shaded
+- every room's average, lowest and highest temperature, and how hard it asked for heat
+- how long the boiler, each heating zone and the hot water were on
+- electricity used by smart plugs and electric heaters, and what it cost
+
+Step back through the weeks or years with the arrows. Turn on **Compare with last year** to see the same period a year earlier beside it, in grey. Amounts are compared per hour recorded, so a week that's only half over, or a day the panel was off, still compares fairly.
+
+Recordings are kept in full detail for a year, then thinned to one reading every half hour and kept for five years. You can change both in **Settings → Recording**. Each day has its own file, and readings are only ever added to the end of it. The panel never rewrites a growing file, which is kind to a Raspberry Pi's SD card. Five years for an eleven-room house takes about 90 MB.
+
 ### Look under the bonnet
 
 The Diagnostics tab is for when something isn't right:
@@ -166,9 +180,10 @@ The cog in the top corner opens **Settings**. There you can:
 
 - set the title shown at the top of the page, for example *The Smiths' Heating*
 - choose light or dark mode, or follow your computer
+- choose the page the panel opens on, or let it open wherever you left off
 - pick an icon for each room
 - set your electricity price
-- decide how often temperatures are recorded, and how long they're kept
+- decide how often temperatures are recorded, how long every reading is kept, and how many years of history to keep
 - change hub settings such as the away-mode temperature, valve protection and open-window detection
 
 ## Get started
@@ -199,7 +214,7 @@ Click the button above, or add the repository by hand:
 4. Click **Start**, and turn on **Show in sidebar**.
 5. Open **WiserHeat** from the sidebar and follow the setup screen.
 
-Home Assistant handles signing in, so the panel doesn't ask for a password. The panel's settings, history and schedule backups are included in your Home Assistant backups.
+Home Assistant handles signing in, so the panel doesn't ask for a password. The panel's settings, history and schedule backups are included in your Home Assistant backups. After five years, the history adds about 90 MB to each backup, for an eleven-room house.
 
 ## Run with Docker
 
@@ -251,7 +266,7 @@ To use the panel away from home, use a VPN such as [Tailscale](https://tailscale
 
 ### Add it to your phone's home screen
 
-The panel can sit on your phone's home screen with its own icon, named after the panel's title. It opens straight to **Rooms**. Long-press the icon for shortcuts to Rooms, Schedules, Batteries and **Boost rooms**. **Settings → Add to your phone** shows the steps for whichever phone you're using.
+The panel can sit on your phone's home screen with its own icon, named after the panel's title. It opens on **Rooms**, or on the page chosen under **Settings → Open on**. Long-press the icon for shortcuts to Rooms, Schedules, Batteries and **Boost rooms**. **Settings → Add to your phone** shows the steps for whichever phone you're using.
 
 - **iPhone or iPad:** open the panel in Safari, tap **Share**, then **Add to Home Screen**. It opens full-screen, like an app.
 - **Android:** in Chrome, tap **⋮**, then **Add to Home screen**. Then:
@@ -279,7 +294,7 @@ In Home Assistant, use the Home Assistant app on your phone instead: the panel i
 |---|---|
 | `config.json` | Your settings, including the hub secret. Keep this private. |
 | `data/layout.json` | Room order and groups |
-| `data/history.json` | Recorded temperatures, for the graphs and boiler statistics |
+| `data/history/` | Recorded temperatures, one file per day, for the graphs, boiler statistics and History tab |
 | `data/backups/` | A copy of every schedule, saved before each change |
 
 `config.json` and `data/` are listed in `.gitignore`, so they won't be committed if you fork this project.

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0 (not released yet)
+
+**Years of history**
+- A new **History** tab: any day, week, month or year, with arrows to step back through them.
+- Each room's temperature against its target, with the heating shaded, and its lowest and highest readings over longer periods.
+- A table of every room's average, lowest and highest temperature, target and heat demand. Click a room to show it on the graph.
+- Boiler, heating zone and hot water hours, and electricity and cost from smart plugs and electric heaters.
+- **Compare with last year** shows the same period a year earlier beside it. Amounts are compared per hour recorded, so part-recorded periods still compare fairly.
+
+**Recording**
+- Recordings are kept in full detail for a year, then thinned to one averaged reading every half hour and kept for five years. Both can be changed in **Settings → Recording** (3, 6 or 12 months of detail; 1, 2, 5 or 10 years, or for ever).
+- One file per day, and readings are only ever added to the end of it, instead of one file rewritten after every reading. Much gentler on SD cards.
+- The old `history.json` is moved into daily files the first time the new version starts.
+
+**Settings**
+- **Open on:** choose the page the panel opens on, on every device and in the phone app, or leave it opening wherever you left off. A link or phone shortcut to a particular page still opens that page.
+
+**Fixes**
+- Diagnostics showed the boiler's switching band as "Off". It now shows the band itself, such as 0.5°.
+
 ## 1.1.0
 
 **Plan trips away**

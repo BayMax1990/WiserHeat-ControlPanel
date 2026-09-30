@@ -372,6 +372,7 @@ main { padding: 0 28px; max-width: 1500px; margin: 0 auto; }
   background: var(--panel-2); color: var(--ink); font: 500 14.5px var(--body);
 }
 .set-input:focus { outline: 2px solid var(--focus); outline-offset: 1px; }
+.set-select { width: auto; min-width: 190px; font-weight: 600; }
 /* The secret gets the full width, in a font where every character is easy to check. */
 .setting.stacked { flex-direction: column; align-items: stretch; gap: 10px; }
 .set-secret { width: 100%; resize: vertical; min-height: 64px; font: 500 13.5px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; word-break: break-all; }
@@ -1171,6 +1172,84 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
   .tabs .short { display: inline; }
 }
 
+/* ---------- History ---------- */
+
+.hist-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 16px; }
+.hist-controls .spacer { flex: 1; }
+.hist-nav { display: flex; align-items: center; gap: 8px; }
+.hist-nav b { font: 650 16px var(--display); min-width: 13ch; text-align: center; }
+.hist-nav .icon-btn { width: 34px; height: 34px; }
+.hist-nav .icon-btn:disabled { opacity: .35; cursor: default; }
+.history-page.stale > :not(.page-title):not(.hist-controls) { opacity: .5; transition: opacity .2s; }
+.hist-empty { display: flex; gap: 14px; align-items: flex-start; }
+.hist-empty > svg { width: 24px; height: 24px; color: var(--ink-3); flex: none; margin-top: 2px; }
+.hist-empty p { margin: 4px 0 0; color: var(--ink-2); }
+.hist-cover { display: flex; align-items: center; gap: 6px; margin: -4px 0 14px; }
+.hist-cover svg { width: 15px; height: 15px; flex: none; }
+.hist-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.hist-panel-head h3 { margin: 0; }
+.hist-room { padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); font-weight: 600; font-size: 14px; max-width: 60%; }
+
+/* The temperature graph. Text sits outside the stretched SVG so it keeps its shape. */
+.hl-plot { position: relative; height: 240px; }
+.hl-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.hl-grid { stroke: var(--line-2); stroke-width: 1; }
+.hl-temp { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+.hl-target { fill: none; stroke: var(--warm); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.hl-last { fill: none; stroke: var(--ink-3); stroke-width: 1.5; stroke-linejoin: round; }
+/* No outlines: the page's icon styles would give these shapes one, stretched thick by the SVG. */
+.hl-heat { fill: var(--warm); stroke: none; }
+.hl-band { fill: color-mix(in oklab, var(--ink) 10%, transparent); stroke: none; }
+.hl-now { stroke: var(--ink-3); stroke-width: 1; }
+.hl-plot rect[data-tip] { stroke: none; }
+.hl-plot rect[data-tip]:hover { fill: color-mix(in oklab, var(--ink) 6%, transparent); }
+.hl-y { position: absolute; left: 0; transform: translateY(-50%); font-size: 11px; color: var(--ink-3); background: var(--panel); padding-right: 4px; pointer-events: none; }
+.hl-axis { position: relative; height: 20px; margin-top: 4px; }
+.hl-axis span { position: absolute; top: 2px; transform: translateX(-50%); font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.hist-key { margin-top: 10px; flex-wrap: wrap; }
+.spark-key i.last { border-top: 2px solid var(--ink-3); }
+.spark-key i.blk.band { background: color-mix(in oklab, var(--ink) 12%, transparent); }
+.spark-key i.blk.bar { width: 10px; height: 10px; border-radius: 2px; background: var(--warm); }
+.spark-key i.blk.bar.cold { background: var(--cold); }
+.spark-key i.blk.bar.energy { background: var(--ink-2); }
+
+/* Bars: this period in colour, last year's in grey beside it. */
+.hc-plot { position: relative; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; height: 180px; padding-top: 20px; align-items: end; border-bottom: 1px solid var(--line); }
+.hc-plot::before { content: ''; position: absolute; left: 0; right: 0; top: 20px; border-top: 1px solid var(--line-2); }
+.hc-max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--ink-3); }
+.hc-col { position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: center; gap: 2px; min-width: 0; border-radius: 4px 4px 0 0; }
+.hc-col:hover { background: color-mix(in oklab, var(--ink) 5%, transparent); }
+.hc-bar { display: block; flex: 1; max-width: 36px; background: var(--warm); border-radius: 4px 4px 0 0; }
+.hc-bar.partial { background: color-mix(in oklab, var(--warm) 45%, var(--panel)); }
+.hist-bars.cold .hc-bar { background: var(--cold); }
+.hist-bars.cold .hc-bar.partial { background: color-mix(in oklab, var(--cold) 45%, var(--panel)); }
+.hist-bars.energy .hc-bar { background: var(--ink-2); }
+.hist-bars.energy .hc-bar.partial { background: color-mix(in oklab, var(--ink-2) 45%, var(--panel)); }
+.hist-bars .hc-bar.prev, .spark-key i.blk.bar.prev { background: color-mix(in oklab, var(--ink-3) 45%, var(--panel)); }
+.hc-axis { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; margin-top: 4px; }
+.hc-axis span { font-size: 11.5px; color: var(--ink-2); text-align: center; white-space: nowrap; overflow: visible; }
+
+.table-scroll { overflow-x: auto; }
+.hist-rooms td, .hist-rooms th { font-variant-numeric: tabular-nums; }
+.hist-rooms td:first-child svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 8px; color: var(--ink-3); }
+.hist-rooms tr[data-act] { cursor: pointer; }
+.hist-rooms tbody tr[data-act]:hover td { background: var(--panel-2); }
+.hist-rooms tr.on td { background: color-mix(in oklab, var(--warm) 9%, var(--panel)); }
+.hist-rooms tr.on td:first-child { box-shadow: inset 3px 0 0 var(--warm); }
+.hist-rooms small { font-size: 12px; color: var(--ink-3); }
+.hist-rooms small.up { color: var(--warm-ink); }
+.hist-rooms small.down { color: var(--cold); }
+
+@media (max-width: 640px) {
+  .hist-controls { gap: 10px; }
+  .hist-controls .spacer { display: none; }
+  .hist-nav { width: 100%; }
+  .hist-nav b { flex: 1; min-width: 0; font-size: 15px; }
+  .hl-plot { height: 190px; }
+  .hc-plot { height: 150px; }
+  .hist-room { max-width: 55%; }
+}
+
 /* ---------- Motion ---------- */
 
 @keyframes flicker { 0%, 100% { transform: scale(1) rotate(0); } 30% { transform: scale(1.06, .96) rotate(-2deg); } 60% { transform: scale(.97, 1.05) rotate(1.5deg); } }
@@ -1228,6 +1307,9 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
   .tabs button svg { width: 22px; height: 22px; padding: 3px 16px; box-sizing: content-box; border-radius: 999px; }
   .tabs .long { display: none; }
   .tabs .short { display: inline; }
+  /* Six tabs when the hub has lights or blinds: a little tighter, so every label fits. */
+  .tabs:has(#tab-lights:not([hidden])) button { font-size: 10.5px; letter-spacing: -.01em; }
+  .tabs:has(#tab-lights:not([hidden])) button svg { padding: 3px 10px; }
   .tabs button[aria-selected="true"] { background: none; box-shadow: none; color: var(--ink); }
   .tabs button[aria-selected="true"] svg { background: color-mix(in oklab, var(--warm) 18%, transparent); color: var(--warm-ink); }
   body { padding-bottom: calc(96px + 64px + env(safe-area-inset-bottom)); }

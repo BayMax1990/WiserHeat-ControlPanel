@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0 (not released yet)
+
+- **History tab.** Any day, week, month or year the app has recorded, with room temperatures, boiler, zone and hot water hours, and electricity and cost. Turn on **Compare with last year** to see the same period a year earlier beside it.
+- **Years of history.** Every reading is kept for a year, then thinned to one every half hour and kept for five years. Both can be changed under **Settings → Recording**.
+- **Open on**, in Settings: choose the page the panel opens on, or leave it opening wherever you left off.
+- Recordings are kept one file per day, and only ever added to, instead of one file rewritten after every reading. Your existing history is moved over the first time the new version starts.
+
 ## 1.1.0
 
 - **Trips.** Plan when you're away, and the app switches Away mode on as you leave and off before you're back, so the house is warm. Weekly repeats, presets and a calendar. It runs with the panel closed.

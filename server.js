@@ -29,10 +29,11 @@ const HOME_ASSISTANT = process.env.HOME_ASSISTANT_APP === '1' || fs.existsSync('
 const DATA_DIR = process.env.DATA_DIR || (HOME_ASSISTANT ? '/data' : '');
 const DATA = DATA_DIR ? path.resolve(DATA_DIR) : path.join(ROOT, 'data');
 const BACKUPS = path.join(DATA, 'backups');
-const HISTORY_FILE = path.join(DATA, 'history.json');
+const HISTORY_DIR = path.join(DATA, 'history');
 const LAYOUT_FILE = path.join(DATA, 'layout.json');
 try {
   fs.mkdirSync(BACKUPS, { recursive: true });
+  fs.mkdirSync(HISTORY_DIR, { recursive: true });
   fs.accessSync(DATA, fs.constants.W_OK);
 } catch (e) {
   // Usually a Docker or NAS folder owned by another user. Say how to fix it, rather than crash with a stack trace.
@@ -45,10 +46,11 @@ try {
 // Settings live in config.json, which the Settings page writes. With no config.json the
 // server still starts, and the page asks for the hub's address and secret.
 const CONFIG_FILE = DATA_DIR ? path.join(DATA, 'config.json') : path.join(ROOT, 'config.json');
-const DEFAULTS = { title: 'Wiser Heating', hubIp: '', secret: '', host: '127.0.0.1', port: 8765, historyIntervalSeconds: 120, historyKeepHours: 168, pricePerKwh: 25, roomIcons: {} };
+const DEFAULTS = { title: 'Wiser Heating', hubIp: '', secret: '', host: '127.0.0.1', port: 8765, historyIntervalSeconds: 120, historyDetailMonths: 12, historyKeepYears: 5, pricePerKwh: 25, roomIcons: {}, startView: '' };
 let config = { ...DEFAULTS };
 try {
   config = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) };
+  delete config.historyKeepHours; // before 1.2, one length for all recordings
 } catch (e) {
   if (e.code !== 'ENOENT') throw new Error(`config.json couldn't be read: ${e.message}`);
 }
@@ -62,7 +64,6 @@ const PORT = Number(process.env.PORT) || (HOME_ASSISTANT ? 8099 : config.port ||
 const HOST = process.env.HOST || (HOME_ASSISTANT ? '0.0.0.0' : config.host || '127.0.0.1');
 const EXPOSED = !['127.0.0.1', '::1', 'localhost'].includes(HOST);
 const historyIntervalMs = () => (config.historyIntervalSeconds || 120) * 1000;
-const historyKeepMs = () => (config.historyKeepHours || 168) * 3600 * 1000;
 
 // ---------------------------------------------------------------------------
 // Hub access. The hub is a small embedded device, so requests are serialised.
@@ -111,19 +112,120 @@ async function getNetwork() {
 }
 
 // ---------------------------------------------------------------------------
+// Local time. The home's time zone is the server's, unless the page says otherwise.
+
+const MINUTE = 60e3, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
+const SERVER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+function validTz(tz) {
+  try { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return tz; } catch { return SERVER_TZ; }
+}
+// A moment's local date and time in a time zone.
+const partsFormats = new Map();
+function localParts(ms, tz) {
+  if (!partsFormats.has(tz)) {
+    partsFormats.set(tz, new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+    }));
+  }
+  const p = Object.fromEntries(partsFormats.get(tz).formatToParts(new Date(ms)).map((x) => [x.type, Number(x.value)]));
+  return { y: p.year, m: p.month, d: p.day, h: p.hour % 24, mi: p.minute, s: p.second };
+}
+// The moment a local date and time happens in a time zone (days may overflow, e.g. d: 35).
+function fromLocal({ y, m, d, h, mi }, tz) {
+  const wall = Date.UTC(y, m - 1, d, h, mi);
+  const offsetAt = (ms) => { const p = localParts(ms, tz); return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000; };
+  let ms = wall - offsetAt(wall);
+  ms = wall - offsetAt(ms); // settle across a clock change
+  return ms;
+}
+const plusLocalDays = (ms, days, tz) => { const p = localParts(ms, tz); return fromLocal({ ...p, d: p.d + days }, tz); };
+
+// Dates as "2026-09-30": the local date of a moment, the next date, and the moment a date starts.
+const pad2 = (n) => String(n).padStart(2, '0');
+const dateKey = (ms, tz = SERVER_TZ) => { const p = localParts(ms, tz); return `${p.y}-${pad2(p.m)}-${pad2(p.d)}`; };
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+const nextKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10); };
+const keyStart = (k, tz = SERVER_TZ) => { const [y, m, d] = k.split('-').map(Number); return fromLocal({ y, m, d, h: 0, mi: 0 }, tz); };
+
+// ---------------------------------------------------------------------------
 // Temperature history (the hub keeps none locally, so we record our own).
-
-let history = [];
-try { history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')); } catch { /* first run */ }
-
-let lastWifiRssi = null;
-
-// Each point: t = time, r = rooms {id: [temp, setpoint, demand%]}, h = boiler firing (1/0, any zone),
+//
+// One file per day in data/history, named by its date. Each reading is added to the end of today's
+// file, so no file is rewritten while it's being recorded, which is kind to a Raspberry Pi's SD card.
+// Once a day is over, a thinned copy is saved beside it (2026-09-30.30m.jsonl), with one averaged
+// reading per half hour. The full-detail file is deleted after historyDetailMonths, and the thinned
+// one after historyKeepYears (0 keeps it for ever).
+//
+// Each reading: t = time, r = rooms {id: [temp, setpoint, demand%]}, h = boiler firing (1/0, any zone),
 // p = smart plugs {id: [watts, total Wh]}, w = hub Wi-Fi signal (dBm). Only where the hub has them:
 // z = each heating zone firing [1/0, …], hw = hot water on (1/0), a = electric heaters {id: [watts, total Wh]}.
+// Averaged readings have the same shape, plus s = the time they cover (ms) and c = how much of it
+// was recorded (ms). Their h, z and hw are the share of that time spent on, and each room also has
+// its lowest and highest temperature: [temp, setpoint, demand%, lowest, highest].
+
+const NO_READING = -32768, OFF = -200;
+const HALF_HOUR = 30 * MINUTE;
+const SPAN_CAP = 10 * MINUTE; // a reading stands for this long at most, so time the panel was off isn't counted
+const RECENT_DAYS = 8; // full detail kept in memory, for the live graphs
+const HISTORY_NAME = /^(\d{4}-\d{2}-\d{2})(\.30m)?\.jsonl$/;
+const historyFile = (k, thin = false) => path.join(HISTORY_DIR, `${k}${thin ? '.30m' : ''}.jsonl`);
+const byTime = (a, b) => a.t - b.t;
+
+let recent = []; // the last RECENT_DAYS days, oldest first
+let lastWifiRssi = null;
+
+function readLines(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    try { out.push(JSON.parse(line)); } catch { /* a line cut short when the panel stopped mid-write */ }
+  }
+  return out.sort(byTime);
+}
+// A whole file at once: write a new one and swap it in, so stopping mid-write can't leave half a file.
+function writeLines(file, points) {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, points.map((p) => JSON.stringify(p)).join('\n') + '\n');
+  fs.renameSync(tmp, file);
+}
+// The days with recordings: { '2026-09-30': { detail: true, thin: false }, … }
+function historyDays() {
+  const days = {};
+  let names = [];
+  try { names = fs.readdirSync(HISTORY_DIR); } catch { /* none yet */ }
+  for (const n of names) {
+    const m = n.match(HISTORY_NAME);
+    if (m) (days[m[1]] ||= { detail: false, thin: false })[m[2] ? 'thin' : 'detail'] = true;
+  }
+  return days;
+}
+
+// Before 1.2, history was one file, rewritten in full after every reading. Split it into days.
+function migrateHistory() {
+  const old = path.join(DATA, 'history.json');
+  if (!fs.existsSync(old)) return;
+  let points = [];
+  try { points = JSON.parse(fs.readFileSync(old, 'utf8')); } catch { /* unreadable: start afresh */ }
+  const byDay = new Map();
+  for (const p of Array.isArray(points) ? points : []) {
+    if (!Number.isFinite(p?.t) || !p.r) continue;
+    const k = dateKey(p.t);
+    if (!byDay.has(k)) byDay.set(k, readLines(historyFile(k))); // anything already recorded that day
+    byDay.get(k).push(p);
+  }
+  for (const [k, list] of byDay) {
+    const seen = new Set();
+    writeLines(historyFile(k), list.sort(byTime).filter((p) => !seen.has(p.t) && seen.add(p.t)));
+  }
+  fs.unlinkSync(old);
+  console.log(`[history] Moved ${points.length} readings into daily files in ${HISTORY_DIR}`);
+}
+
 function recordHistory(domain) {
   const t = Date.now();
-  const last = history[history.length - 1];
+  const last = recent[recent.length - 1];
   if (last && t - last.t < historyIntervalMs() / 2) return;
   const r = {};
   for (const room of domain.Room || []) {
@@ -136,12 +238,222 @@ function recordHistory(domain) {
   if (zones.length > 1) point.z = zones;
   if (domain.HotWater?.length) point.hw = domain.HotWater.some((w) => w.HotWaterRelayState === 'On' || w.WaterHeatingState === 'On') ? 1 : 0;
   if (domain.HeatingActuator?.length) point.a = Object.fromEntries(domain.HeatingActuator.map((a) => [a.id, [a.InstantaneousDemand ?? 0, a.CurrentSummationDelivered ?? null]]));
-  history.push(point);
-  history = history.filter((p) => t - p.t <= historyKeepMs());
-  // Write a new file and swap it in, so stopping mid-write can't leave a half-written history.
-  const tmp = `${HISTORY_FILE}.tmp`;
-  fs.writeFile(tmp, JSON.stringify(history), (err) => { if (!err) fs.rename(tmp, HISTORY_FILE, () => {}); });
+  recent.push(point);
+  while (recent.length && recent[0].t < t - RECENT_DAYS * DAY) recent.shift();
+  fs.appendFile(historyFile(dateKey(t)), JSON.stringify(point) + '\n', (err) => { if (err) console.warn(`[history] ${err.message}`); });
 }
+
+// --- Averaging readings ------------------------------------------------------
+
+// How long each reading stands for: until the next one, up to SPAN_CAP. Averaged ones say (c).
+function withWeights(points) {
+  return points.map((p, i) => {
+    if (p.c != null) return { p, w: p.c };
+    const next = points[i + 1]?.t ?? Math.min(Date.now(), p.t + historyIntervalMs());
+    return { p, w: Math.max(0, Math.min(next - p.t, SPAN_CAP)) };
+  });
+}
+
+const round = (v, dp = 0) => Math.round(v * 10 ** dp) / 10 ** dp;
+
+// One averaged reading from several, each weighted by the time it stands for.
+function combine(items, t, s) {
+  const c = items.reduce((a, x) => a + x.w, 0);
+  const out = { t, s, c: Math.round(c), r: {} };
+  const share = (get) => {
+    let on = 0, cov = 0;
+    for (const { p, w } of items) { const v = get(p); if (v == null) continue; cov += w; on += w * v; }
+    return cov ? round(on / cov, 3) : null;
+  };
+  out.h = share((p) => p.h) ?? 0;
+  const zoneCount = Math.max(0, ...items.map(({ p }) => p.z?.length || 0));
+  if (zoneCount) out.z = Array.from({ length: zoneCount }, (_, i) => share((p) => p.z?.[i]) ?? 0);
+  const hw = share((p) => p.hw);
+  if (hw != null) out.hw = hw;
+  // Rooms: average temperature (and its range), setpoint, and heat demand.
+  for (const id of new Set(items.flatMap(({ p }) => Object.keys(p.r || {})))) {
+    let tw = 0, ts = 0, lo = Infinity, hi = -Infinity, sw = 0, ss = 0, offW = 0, dw = 0, ds = 0;
+    for (const { p, w } of items) {
+      const v = p.r?.[id];
+      if (!v) continue;
+      if (v[0] != null && v[0] !== NO_READING) { tw += w; ts += w * v[0]; lo = Math.min(lo, v[3] ?? v[0]); hi = Math.max(hi, v[4] ?? v[0]); }
+      if (v[1] === OFF) offW += w; else if (v[1] != null) { sw += w; ss += w * v[1]; }
+      dw += w; ds += w * (v[2] ?? 0);
+    }
+    const sp = offW > sw ? OFF : sw ? Math.round(ss / sw) : OFF;
+    const dem = dw ? round(ds / dw, 1) : 0;
+    out.r[id] = tw ? [Math.round(ts / tw), sp, dem, lo, hi] : [NO_READING, sp, dem];
+  }
+  // Plugs and electric heaters: average power, and the meter's last reading.
+  for (const key of ['p', 'a']) {
+    if (!items.some(({ p }) => p[key])) continue;
+    out[key] = {};
+    for (const id of new Set(items.flatMap(({ p }) => Object.keys(p[key] || {})))) {
+      let pw = 0, ps = 0, meter = null;
+      for (const { p, w } of items) {
+        const v = p[key]?.[id];
+        if (!v) continue;
+        pw += w; ps += w * (v[0] ?? 0);
+        if (v[1] != null) meter = v[1];
+      }
+      out[key][id] = [pw ? round(ps / pw, 1) : 0, meter];
+    }
+  }
+  let ww = 0, wsum = 0;
+  for (const { p, w } of items) if (p.w != null) { ww += w; wsum += w * p.w; }
+  out.w = ww ? Math.round(wsum / ww) : null;
+  return out;
+}
+
+// Readings averaged into steps of `step` ms, counted from 1970, so half hours start on the half hour.
+function bucketise(points, step) {
+  const groups = new Map();
+  for (const x of withWeights(points)) {
+    const b = Math.floor(x.p.t / step) * step;
+    if (!groups.has(b)) groups.set(b, []);
+    groups.get(b).push(x);
+  }
+  return [...groups].map(([b, items]) => combine(items, b, Math.max(step, ...items.map(({ p }) => p.s || 0)))).filter((p) => p.c > 0);
+}
+
+// --- Reading it back ---------------------------------------------------------
+
+// Readings from `from` to `to`: full detail where it's kept and `detail` is asked for, otherwise
+// half-hourly averages. `days` is historyDays(), when the caller already has it.
+function readHistory(from, to, detail, days = historyDays()) {
+  const inMemoryFrom = dateKey(Date.now() - RECENT_DAYS * DAY); // later days are all in `recent`
+  const out = [];
+  const lastKey = dateKey(to);
+  for (let k = dateKey(from); k <= lastKey && k <= inMemoryFrom; k = nextKey(k)) {
+    const f = days[k];
+    if (!f) continue;
+    if (detail && f.detail) out.push(...readLines(historyFile(k)));
+    else if (f.thin) out.push(...readLines(historyFile(k, true)));
+    else out.push(...bucketise(readLines(historyFile(k)), HALF_HOUR)); // not thinned yet
+  }
+  if (lastKey > inMemoryFrom) {
+    const start = Math.max(from, keyStart(nextKey(inMemoryFrom)));
+    const mem = recent.filter((p) => p.t >= start && p.t < to);
+    out.push(...(detail ? mem : bucketise(mem, HALF_HOUR)));
+  }
+  return out.filter((p) => p.t >= from && p.t < to).sort(byTime);
+}
+
+// For a chart: readings from `from` to `to`, averaged down to about `points` of them.
+const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440].map((m) => m * MINUTE);
+function historyRange(from, to, points) {
+  const want = (to - from) / points;
+  const step = STEPS.find((s) => s >= want) || DAY;
+  return { step, points: bucketise(readHistory(from, to, step < HALF_HOUR), step) };
+}
+
+// One day's totals, for the History tab. `tz` is the page's time zone, where the day starts.
+function summariseDay(k, tz, days) {
+  const start = keyStart(k, tz), end = keyStart(nextKey(k), tz);
+  const pts = readHistory(start - 2 * HOUR, end, false, days);
+  const day = pts.filter((p) => p.t >= start);
+  const before = pts.filter((p) => p.t < start).pop(); // the meters' readings as the day began
+  const out = { date: k, c: 0, h: 0, r: {} };
+  const rooms = {};
+  for (const p of day) {
+    out.c += p.c;
+    out.h += p.h * p.c;
+    if (p.z) { out.z ||= []; p.z.forEach((v, i) => { out.z[i] = (out.z[i] || 0) + v * p.c; }); }
+    if (p.hw != null) out.hw = (out.hw || 0) + p.hw * p.c;
+    for (const [id, v] of Object.entries(p.r || {})) {
+      const x = (rooms[id] ||= { tw: 0, ts: 0, lo: Infinity, hi: -Infinity, sw: 0, ss: 0, dw: 0, ds: 0 });
+      if (v[0] !== NO_READING) { x.tw += p.c; x.ts += p.c * v[0]; x.lo = Math.min(x.lo, v[3] ?? v[0]); x.hi = Math.max(x.hi, v[4] ?? v[0]); }
+      if (v[1] !== OFF) { x.sw += p.c; x.ss += p.c * v[1]; }
+      x.dw += p.c; x.ds += p.c * v[2];
+    }
+  }
+  // Rooms: [average, lowest, highest, average target (null if off all day), average heat demand %].
+  for (const [id, x] of Object.entries(rooms)) {
+    out.r[id] = x.tw ? [Math.round(x.ts / x.tw), x.lo, x.hi] : [null, null, null];
+    out.r[id].push(x.sw ? Math.round(x.ss / x.sw) : null, x.dw ? round(x.ds / x.dw, 1) : 0);
+  }
+  // Energy (Wh) from each meter's rises through the day. A meter that goes down was reset or replaced.
+  for (const key of ['p', 'a']) {
+    const used = {};
+    for (const p of before ? [before, ...day] : day) {
+      for (const [id, v] of Object.entries(p[key] || {})) {
+        if (v[1] == null) continue;
+        const u = (used[id] ||= { last: null, wh: 0 });
+        if (u.last != null && v[1] > u.last) u.wh += v[1] - u.last;
+        u.last = v[1];
+      }
+    }
+    if (Object.keys(used).length) out[key] = Object.fromEntries(Object.entries(used).map(([id, u]) => [id, Math.round(u.wh)]));
+  }
+  out.h = Math.round(out.h);
+  if (out.z) out.z = out.z.map(Math.round);
+  if (out.hw != null) out.hw = Math.round(out.hw);
+  return out;
+}
+
+// Finished days don't change, so their totals are kept once worked out.
+const daySummaries = new Map(); // `${tz} ${date}` -> totals
+function historyDaysApi(fromKey, toKey, tz) {
+  const done = keyStart(dateKey(Date.now())); // days that ended before today's file began are final
+  const files = historyDays();
+  const out = [];
+  for (let k = fromKey, n = 0; k <= toKey && n < 4000; k = nextKey(k), n++) {
+    const id = `${tz} ${k}`;
+    if (daySummaries.has(id)) { out.push(daySummaries.get(id)); continue; }
+    if (keyStart(k, tz) > Date.now()) break;
+    const s = summariseDay(k, tz, files);
+    if (keyStart(nextKey(k), tz) <= done) daySummaries.set(id, s);
+    out.push(s);
+  }
+  return out;
+}
+
+// --- Thinning and tidying, once an hour ----------------------------------------
+
+function tidyHistory() {
+  const now = Date.now();
+  const today = dateKey(now);
+  const detailFrom = dateKey(now - Math.round((config.historyDetailMonths || 12) * 30.44) * DAY);
+  const keepFrom = config.historyKeepYears ? dateKey(now - Math.round(config.historyKeepYears * 365.25) * DAY) : null;
+  let deleted = false;
+  for (const [k, f] of Object.entries(historyDays()).sort()) {
+    try {
+      if (keepFrom && k < keepFrom) {
+        for (const thin of [false, true]) if (thin ? f.thin : f.detail) fs.unlinkSync(historyFile(k, thin));
+        deleted = true;
+        continue;
+      }
+      if (!f.detail || k >= today) continue;
+      if (!f.thin) writeLines(historyFile(k, true), bucketise(readLines(historyFile(k)), HALF_HOUR));
+      if (k < detailFrom) fs.unlinkSync(historyFile(k));
+    } catch (e) {
+      console.warn(`[history] ${k}: ${e.message}`);
+    }
+  }
+  if (deleted) daySummaries.clear();
+}
+
+// How far back recordings go, and the space they take, for Settings.
+function historyInfo() {
+  let bytes = 0, first = null;
+  for (const n of fs.readdirSync(HISTORY_DIR)) {
+    const m = n.match(HISTORY_NAME);
+    if (!m) continue;
+    try { bytes += fs.statSync(path.join(HISTORY_DIR, n)).size; } catch { continue; }
+    if (!first || m[1] < first) first = m[1];
+  }
+  return { first, bytes };
+}
+
+try { migrateHistory(); } catch (e) { console.warn(`[history] Couldn't move the old history file: ${e.message}`); }
+recent = (() => {
+  const from = Date.now() - RECENT_DAYS * DAY;
+  const days = historyDays();
+  return Object.keys(days).filter((k) => days[k].detail && k >= dateKey(from)).sort()
+    .flatMap((k) => readLines(historyFile(k))).filter((p) => p.t >= from).sort(byTime);
+})();
+tidyHistory();
+setInterval(tidyHistory, HOUR);
 
 async function pollHistory() {
   if (!hubReady()) return;
@@ -317,7 +629,6 @@ async function restoreBackup(file) {
 //               error: null | { at, message } }
 
 const TRIPS_FILE = path.join(DATA, 'trips.json');
-const MINUTE = 60e3, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 // How often trips are checked, and how long after switching Away on before a manual "off" counts.
 // TRIPS_TEST_FAST=1 shortens both, for the automated tests only.
 const TRIP_TICK = process.env.TRIPS_TEST_FAST === '1' ? 2000 : MINUTE;
@@ -329,27 +640,6 @@ function saveTrips() {
   fs.writeFileSync(tmp, JSON.stringify(trips, null, 1));
   fs.renameSync(tmp, TRIPS_FILE);
 }
-
-const SERVER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-function validTz(tz) {
-  try { new Intl.DateTimeFormat('en-GB', { timeZone: tz }); return tz; } catch { return SERVER_TZ; }
-}
-// A moment's local date and time in a time zone.
-function localParts(ms, tz) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
-  }).formatToParts(new Date(ms)).map((x) => [x.type, Number(x.value)]));
-  return { y: p.year, m: p.month, d: p.day, h: p.hour % 24, mi: p.minute, s: p.second };
-}
-// The moment a local date and time happens in a time zone (days may overflow, e.g. d: 35).
-function fromLocal({ y, m, d, h, mi }, tz) {
-  const wall = Date.UTC(y, m - 1, d, h, mi);
-  const offsetAt = (ms) => { const p = localParts(ms, tz); return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000; };
-  let ms = wall - offsetAt(wall);
-  ms = wall - offsetAt(ms); // settle across a clock change
-  return ms;
-}
-const plusLocalDays = (ms, days, tz) => { const p = localParts(ms, tz); return fromLocal({ ...p, d: p.d + days }, tz); };
 
 // A trip's away periods that overlap [from, to): { key, tripId, name, start, end, offAt }.
 // offAt is when Away switches off: the return time, less the warm-up.
@@ -568,7 +858,8 @@ function cleanLayout(b) {
 
 const publicSettings = (req) => ({
   version: VERSION, title: config.title, defaultTitle: DEFAULTS.title, hubIp: config.hubIp, hasSecret: !!config.secret, port: PORT,
-  historyIntervalSeconds: config.historyIntervalSeconds, historyKeepHours: config.historyKeepHours, pricePerKwh: config.pricePerKwh, roomIcons: config.roomIcons || {},
+  historyIntervalSeconds: config.historyIntervalSeconds, historyDetailMonths: config.historyDetailMonths, historyKeepYears: config.historyKeepYears,
+  history: historyInfo(), startView: config.startView || '', pricePerKwh: config.pricePerKwh, roomIcons: config.roomIcons || {},
   password: { set: passwordSet(), fromEnv: !!ENV_PASSWORD },
   network: { exposed: EXPOSED, host: HOST, urls: networkUrls(), local: isLocal(req), dataDir: DATA },
   homeAssistant: HOME_ASSISTANT,
@@ -588,6 +879,8 @@ function wholeIn(v, lo, hi, what) {
   return n;
 }
 
+const START_VIEWS = ['', 'schedules', 'rooms', 'lights', 'batteries', 'history', 'diagnostics'];
+
 function updateSettings(b) {
   const next = { ...config };
   if ('title' in b) next.title = String(b.title ?? '').trim().slice(0, 60) || DEFAULTS.title;
@@ -606,8 +899,13 @@ function updateSettings(b) {
     }
     next.roomIcons = icons;
   }
+  if ('startView' in b) { // the page the panel opens on; '' for wherever it was left
+    if (!START_VIEWS.includes(b.startView)) throw bad("That isn't one of the panel's pages");
+    next.startView = b.startView;
+  }
   if ('historyIntervalSeconds' in b) next.historyIntervalSeconds = wholeIn(b.historyIntervalSeconds, 30, 3600, 'The recording interval');
-  if ('historyKeepHours' in b) next.historyKeepHours = wholeIn(b.historyKeepHours, 24, 24 * 90, 'The history length');
+  if ('historyDetailMonths' in b) next.historyDetailMonths = wholeIn(b.historyDetailMonths, 1, 24, 'Full detail');
+  if ('historyKeepYears' in b) next.historyKeepYears = wholeIn(b.historyKeepYears, 0, 50, 'The history length'); // 0: for ever
   if ('pricePerKwh' in b) {
     const v = Number(b.pricePerKwh);
     if (!(v > 0 && v < 1000)) throw bad('Enter a price between 0 and 1000 pence');
@@ -618,6 +916,7 @@ function updateSettings(b) {
   config = next;
   saveConfig();
   if (intervalChanged || hubChanged) startHistory();
+  if ('historyDetailMonths' in b || 'historyKeepYears' in b) tidyHistory();
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,10 +1361,21 @@ async function api(req, res, url) {
     fs.writeFileSync(LAYOUT_FILE, JSON.stringify(layout, null, 1));
     return send(res, 200, layout);
   }
-  if (m === 'GET' && p === '/api/history') {
-    const hours = Number(url.searchParams.get('hours')) || 24;
-    const from = Date.now() - hours * 3600e3;
-    return send(res, 200, history.filter((x) => x.t >= from));
+  if (m === 'GET' && p === '/api/history') { // the last few days, in full, for the live graphs
+    const hours = Math.min(Number(url.searchParams.get('hours')) || 24, RECENT_DAYS * 24);
+    const from = Date.now() - hours * HOUR;
+    return send(res, 200, recent.filter((x) => x.t >= from));
+  }
+  if (m === 'GET' && p === '/api/history/range') { // any period, averaged down for a chart
+    const from = Number(url.searchParams.get('from')), to = Number(url.searchParams.get('to'));
+    const points = Math.min(Math.max(Number(url.searchParams.get('points')) || 400, 10), 2000);
+    if (!(from > 0 && to > from && to - from <= 11 * 366 * DAY)) return send(res, 400, { error: 'Choose a period to show' });
+    return send(res, 200, historyRange(from, to, points));
+  }
+  if (m === 'GET' && p === '/api/history/days') { // totals for each day, in the page's time zone
+    const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+    if (!DATE_KEY.test(from) || !DATE_KEY.test(to) || to < from) return send(res, 400, { error: 'Choose a period to show' });
+    return send(res, 200, { days: historyDaysApi(from, to, validTz(url.searchParams.get('tz') || SERVER_TZ)) });
   }
   if (m === 'GET' && p === '/api/diagnostics') {
     const network = await getNetwork();
@@ -1170,7 +1480,7 @@ function webManifest() {
     name,
     short_name: shortName,
     description: "See and control your whole home's heating on one screen.",
-    start_url: './?view=rooms',
+    start_url: './?launch=app', // the page chosen in Settings, or Rooms
     scope: './',
     display: 'standalone',
     background_color: '#e8ecf0',
