@@ -180,7 +180,7 @@ The cog in the top corner opens **Settings**. There you can:
 
 - set the title shown at the top of the page, for example *The Smiths' Heating*
 - choose light or dark mode, or follow your computer
-- choose a theme: **Modern**, or **Steampunk**, with brass and mahogany, a pressure gauge showing the boiler's demand, and gears that turn faster while it fires *(new)*
+- choose a theme: **Modern**; **Steampunk**, with brass and mahogany, a pressure gauge showing the boiler's demand, and gears that turn faster while it fires; or **Sci-fi**, a starship bridge with a warp core that pulses with the boiler, and stars that go to warp while it fires *(new)*
 - choose the page the panel opens on, or let it open wherever you left off
 - pick an icon for each room
 - set your electricity price

@@ -15,7 +15,7 @@
   <script>
     // Apply a saved light/dark choice and theme before first paint, so the page doesn't flash.
     try { const t = JSON.parse(localStorage.getItem('wiser.theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
-    try { if (JSON.parse(localStorage.getItem('wiser.look')) === 'steampunk') document.documentElement.dataset.look = 'steampunk'; } catch {}
+    try { const l = JSON.parse(localStorage.getItem('wiser.look')); if (l === 'steampunk' || l === 'scifi') document.documentElement.dataset.look = l; } catch {}
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0662e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,9 +23,17 @@
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Sans:wght@400..700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="steampunk.css">
-  <!-- The Steampunk theme's lettering, loaded only when it's chosen (see setLook in app.js). -->
+  <link rel="stylesheet" href="scifi.css">
+  <!-- Each theme's lettering, loaded only when it's chosen (see LOOK_FONTS in app.js). -->
   <script>
-    if (document.documentElement.dataset.look === 'steampunk') document.write('<link id="lookFonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap">');
+    (function () {
+      const fonts = {
+        steampunk: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap',
+        scifi: 'https://fonts.googleapis.com/css2?family=Orbitron:wght@500..800&family=Chakra+Petch:wght@400;500;600;700&display=swap',
+      };
+      const l = document.documentElement.dataset.look;
+      if (fonts[l]) document.write('<link id="fonts-' + l + '" rel="stylesheet" href="' + fonts[l] + '">');
+    })();
   </script>
 </head>
 <body>
@@ -47,6 +55,10 @@
       <symbol id="sp-gear8" viewBox="0 0 100 100"><path fill="url(#sp-brass)" stroke="#4d3410" stroke-width="1.2" fill-rule="evenodd" d="M85.98,41.36L98.61,43.86L98.61,56.14L85.98,58.64L81.55,69.33L88.72,80.03L80.03,88.72L69.33,81.55L58.64,85.98L56.14,98.61L43.86,98.61L41.36,85.98L30.67,81.55L19.97,88.72L11.28,80.03L18.45,69.33L14.02,58.64L1.39,56.14L1.39,43.86L14.02,41.36L18.45,30.67L11.28,19.97L19.97,11.28L30.67,18.45L41.36,14.02L43.86,1.39L56.14,1.39L58.64,14.02L69.33,18.45L80.03,11.28L88.72,19.97L81.55,30.67ZM59.00,50.00a9,9 0 1 0 -18,0a9,9 0 1 0 18,0Z"/></symbol>
     </defs>
   </svg>
+  <!-- Sci-fi theme: deep space behind the page. Hidden in the other themes. -->
+  <div class="sf-space sf-only" aria-hidden="true">
+    <i class="sf-nebula"></i><i class="sf-stars far"></i><i class="sf-stars near"></i>
+  </div>
   <div class="sp-deco sp-only" aria-hidden="true">
     <svg class="sp-gear big"><use href="#sp-gear12"/></svg>
     <svg class="sp-gear mid rev"><use href="#sp-gear8"/></svg>
@@ -70,6 +82,8 @@
         </svg>
         <span class="sp-steam"><i></i><i></i><i></i></span>
       </div>
+      <!-- Sci-fi: a warp core, pulsing faster and brighter with the boiler's demand. -->
+      <div class="sf-core sf-only" aria-hidden="true"><span class="sf-glass"><i></i><i></i><i></i><i></i></span></div>
       <svg class="brand-flame" id="brandFlame" aria-hidden="true"><use href="#flame"/></svg>
       <div>
         <h1 id="appTitle">%TITLE%</h1>

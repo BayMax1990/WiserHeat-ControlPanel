@@ -1,0 +1,444 @@
+/* WiserHeat Control Panel: the Sci-fi theme.
+ *
+ * A starship bridge: glass panels with cut corners, laser-lit edges and hexagonal readouts. By night,
+ * deep space with a drifting nebula and a warp starfield; by day, a white starship interior. The header
+ * is a viewport onto the stars in both, with a warp core that pulses with the boiler's demand.
+ * Only applies when <html data-look="scifi">, set from Settings → Theme. The layout is unchanged.
+ *
+ * The warp core and the starfield are in index.html (class sf-only). The heat colours are in app.js.
+ */
+
+/* ---------- Colours and lettering ---------- */
+
+/* Day: a white starship interior. */
+:root[data-look="scifi"] {
+  --bg: #e4eaf3;
+  --panel: #f8fbff;
+  --panel-2: #eaf1fa;
+  --ink: #0a1630;
+  --ink-2: #3a4e6e;
+  --ink-3: #687d9b;
+  --line: #b4c8e2;
+  --line-2: #d7e3f2;
+  --focus: #0079d6;
+  --warm: #e2501f;
+  --warm-ink: #bd3f10;
+  --cold: #0090c7;
+  --good: #07996a;
+  --danger: #d4254a;
+  --warn: #b37400;
+  --mode-auto: #0090c7; --mode-auto-ink: #ffffff;
+  --mode-manual: #e2501f; --mode-manual-ink: #ffffff;
+  --mode-off: #5d6d85; --mode-off-ink: #ffffff;
+  --hatch: #c3d3e8;
+  --shadow: 0 1px 2px rgb(10 30 70 / .08), 0 10px 26px -16px rgb(10 30 70 / .35);
+  --display: "Orbitron", "Eurostile", "Segoe UI", sans-serif;
+  --body: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+
+  --laser: #00a8dd; --laser-2: #d63fb8; --glow: 0; /* how much things glow: none by day */
+  --edge: rgb(0 150 210 / .75);
+  --glass: color-mix(in oklab, var(--panel) 94%, transparent);
+  --scan: repeating-linear-gradient(180deg, rgb(0 120 200 / .035) 0 1px, transparent 1px 4px);
+  --page: linear-gradient(rgb(0 110 190 / .05) 1px, transparent 1px) 0 0 / 40px 40px, linear-gradient(90deg, rgb(0 110 190 / .05) 1px, transparent 1px) 0 0 / 40px 40px;
+  --corners-lg:
+    linear-gradient(135deg, transparent 9px, var(--edge) 9px 10.6px, transparent 10.6px) 0 0 / 16px 16px no-repeat,
+    linear-gradient(315deg, transparent 9px, var(--edge) 9px 10.6px, transparent 10.6px) 100% 100% / 16px 16px no-repeat;
+  --corners-sm:
+    linear-gradient(135deg, transparent 4.4px, var(--edge) 4.4px 5.8px, transparent 5.8px) 0 0 / 9px 9px no-repeat,
+    linear-gradient(315deg, transparent 4.4px, var(--edge) 4.4px 5.8px, transparent 5.8px) 100% 100% / 9px 9px no-repeat;
+  --cut-lg: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  --cut-sm: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  --hex: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%);
+  color-scheme: light;
+}
+
+/* Night: deep space, glowing glass. */
+:root[data-look="scifi"][data-theme="dark"] {
+  --bg: #04060e;
+  --panel: #0b1328;
+  --panel-2: #0f1a33;
+  --ink: #e2f7ff;
+  --ink-2: #93b6d2;
+  --ink-3: #5f7c99;
+  --line: #1f3b5e;
+  --line-2: #16284a;
+  --focus: #5ff4ff;
+  --warm: #ff7a3d;
+  --warm-ink: #ff9b6a;
+  --cold: #3ad6ff;
+  --good: #4dffa6;
+  --danger: #ff4d6d;
+  --warn: #ffc64d;
+  --mode-auto: #2fc2ee; --mode-auto-ink: #03101c;
+  --mode-manual: #ff7a3d; --mode-manual-ink: #1a0700;
+  --mode-off: #6b7c93; --mode-off-ink: #04060e;
+  --hatch: #1d2f50;
+  --shadow: 0 0 0 1px rgb(58 214 255 / .05), 0 14px 32px -14px rgb(0 0 0 / .9);
+  --laser: #3ad6ff; --laser-2: #ff4fd8; --glow: 1;
+  --edge: rgb(58 214 255 / .9);
+  --glass: color-mix(in oklab, var(--panel) 84%, transparent);
+  --scan: repeating-linear-gradient(180deg, rgb(120 220 255 / .04) 0 1px, transparent 1px 4px);
+  --page: none;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-look="scifi"]:not([data-theme="light"]) {
+    --bg: #04060e;
+    --panel: #0b1328;
+    --panel-2: #0f1a33;
+    --ink: #e2f7ff;
+    --ink-2: #93b6d2;
+    --ink-3: #5f7c99;
+    --line: #1f3b5e;
+    --line-2: #16284a;
+    --focus: #5ff4ff;
+    --warm: #ff7a3d;
+    --warm-ink: #ff9b6a;
+    --cold: #3ad6ff;
+    --good: #4dffa6;
+    --danger: #ff4d6d;
+    --warn: #ffc64d;
+    --mode-auto: #2fc2ee; --mode-auto-ink: #03101c;
+    --mode-manual: #ff7a3d; --mode-manual-ink: #1a0700;
+    --mode-off: #6b7c93; --mode-off-ink: #04060e;
+    --hatch: #1d2f50;
+    --shadow: 0 0 0 1px rgb(58 214 255 / .05), 0 14px 32px -14px rgb(0 0 0 / .9);
+    --laser: #3ad6ff; --laser-2: #ff4fd8; --glow: 1;
+    --edge: rgb(58 214 255 / .9);
+    --glass: color-mix(in oklab, var(--panel) 84%, transparent);
+    --scan: repeating-linear-gradient(180deg, rgb(120 220 255 / .04) 0 1px, transparent 1px 4px);
+    --page: none;
+    color-scheme: dark;
+  }
+}
+
+[data-look="scifi"] body {
+  background: var(--page), var(--bg);
+  font-size: 15px; line-height: 1.5;
+  scrollbar-color: var(--laser) var(--panel-2);
+}
+[data-look="scifi"] ::selection { background: color-mix(in oklab, var(--laser) 40%, transparent); }
+[data-look="scifi"] :focus-visible { outline-color: var(--focus); }
+[data-look="scifi"] .sf-only { display: block; }
+[data-look="scifi"] .brand-flame { display: none; }
+[data-look="scifi"] main, [data-look="scifi"] #banner { position: relative; z-index: 1; }
+
+/* Orbitron is wide: headings and numbers only, with the tabs, bands and small labels in Chakra Petch. */
+[data-look="scifi"] :is(.brand h1, .page-title, .diag-title, .big-temp, .setup-card h2, .auth-card h2, .card-layout .group-name, .diag-tile b, .target b, .boiler b, .room-name, .diag-panel h3) {
+  letter-spacing: .02em; font-variation-settings: normal;
+}
+[data-look="scifi"] .big-temp { font-size: 40px; font-weight: 700; letter-spacing: 0; }
+[data-look="scifi"] .room-name { font-size: 14px; font-weight: 600; }
+[data-look="scifi"] :is(.seg-fill, .tabs button, .clock, .group-name, .axis span, .now-tag) { font-family: var(--body); }
+[data-look="scifi"] .seg-fill { font-weight: 700; letter-spacing: .02em; }
+[data-look="scifi"] :is(.big-temp, .diag-tile b, .brand h1) { text-shadow: 0 0 calc(var(--glow) * 14px) color-mix(in oklab, var(--laser) 55%, transparent); }
+
+/* ---------- Deep space behind the page: a faint nebula by day, stars as well by night ---------- */
+
+.sf-space { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+[data-look="scifi"] .sf-nebula { opacity: .45; }
+[data-look="scifi"] .sf-stars { display: none; }
+[data-look="scifi"][data-theme="dark"] .sf-nebula { opacity: 1; }
+[data-look="scifi"][data-theme="dark"] .sf-stars { display: block; }
+@media (prefers-color-scheme: dark) {
+  [data-look="scifi"]:not([data-theme="light"]) .sf-nebula { opacity: 1; }
+  [data-look="scifi"]:not([data-theme="light"]) .sf-stars { display: block; }
+}
+.sf-nebula {
+  position: absolute; inset: -25%;
+  background:
+    radial-gradient(38% 32% at 22% 30%, rgb(120 60 230 / .32), transparent 70%),
+    radial-gradient(34% 28% at 78% 68%, rgb(255 60 200 / .18), transparent 70%),
+    radial-gradient(44% 38% at 62% 18%, rgb(40 180 255 / .16), transparent 70%),
+    radial-gradient(30% 30% at 30% 85%, rgb(40 90 255 / .16), transparent 70%);
+  filter: blur(24px);
+  animation: sf-drift 70s ease-in-out infinite alternate;
+}
+.sf-stars { position: absolute; top: 0; left: 0; height: 100%; }
+.sf-stars.far {
+  width: calc(100% + 600px);
+  background-image: radial-gradient(7px 1px at 0px 220px, rgb(255 255 255 / 0.52), transparent), radial-gradient(6px 1px at 118px 410px, rgb(170 230 255 / 0.47), transparent), radial-gradient(8px 1px at 64px 343px, rgb(170 230 255 / 0.46), transparent), radial-gradient(4px 1px at 148px 79px, rgb(255 255 255 / 0.71), transparent), radial-gradient(7px 1px at 321px 355px, rgb(255 255 255 / 0.59), transparent), radial-gradient(5px 1px at 79px 362px, rgb(170 230 255 / 0.55), transparent), radial-gradient(2px 1px at 140px 5px, rgb(210 190 255 / 0.76), transparent), radial-gradient(7px 1px at 472px 240px, rgb(170 230 255 / 0.50), transparent), radial-gradient(4px 1px at 225px 112px, rgb(170 230 255 / 0.51), transparent), radial-gradient(3px 1px at 32px 222px, rgb(170 230 255 / 0.50), transparent), radial-gradient(9px 1px at 116px 27px, rgb(170 230 255 / 0.39), transparent), radial-gradient(7px 1px at 596px 182px, rgb(255 255 255 / 0.59), transparent), radial-gradient(7px 1px at 597px 80px, rgb(170 230 255 / 0.55), transparent), radial-gradient(8px 1px at 448px 75px, rgb(210 190 255 / 0.39), transparent), radial-gradient(6px 1px at 18px 56px, rgb(170 230 255 / 0.46), transparent), radial-gradient(3px 1px at 304px 219px, rgb(210 190 255 / 0.51), transparent), radial-gradient(7px 1px at 461px 111px, rgb(210 190 255 / 0.56), transparent), radial-gradient(5px 1px at 264px 387px, rgb(210 190 255 / 0.49), transparent), radial-gradient(7px 1px at 477px 364px, rgb(170 230 255 / 0.72), transparent), radial-gradient(4px 1px at 319px 129px, rgb(255 255 255 / 0.55), transparent), radial-gradient(2px 1px at 340px 274px, rgb(170 230 255 / 0.56), transparent), radial-gradient(5px 1px at 6px 294px, rgb(170 230 255 / 0.77), transparent), radial-gradient(4px 1px at 75px 180px, rgb(170 230 255 / 0.46), transparent), radial-gradient(9px 1px at 219px 298px, rgb(255 255 255 / 0.57), transparent), radial-gradient(3px 1px at 493px 224px, rgb(170 230 255 / 0.41), transparent), radial-gradient(3px 1px at 487px 165px, rgb(170 230 255 / 0.50), transparent);
+  background-size: 600px 420px;
+  animation: sf-warp-far 40s linear infinite;
+}
+.sf-stars.near {
+  width: calc(100% + 900px);
+  background-image: radial-gradient(38px 1px at 228px 193px, rgb(140 225 255 / 0.63), transparent), radial-gradient(33px 1px at 256px 495px, rgb(140 225 255 / 0.76), transparent), radial-gradient(40px 1px at 706px 64px, rgb(255 255 255 / 0.67), transparent), radial-gradient(57px 1px at 151px 478px, rgb(140 225 255 / 0.76), transparent), radial-gradient(37px 1px at 440px 183px, rgb(140 225 255 / 0.71), transparent), radial-gradient(40px 1px at 386px 161px, rgb(255 255 255 / 0.84), transparent), radial-gradient(40px 1px at 368px 5px, rgb(140 225 255 / 0.63), transparent), radial-gradient(68px 1px at 783px 456px, rgb(220 160 255 / 0.64), transparent), radial-gradient(64px 1px at 459px 99px, rgb(220 160 255 / 0.94), transparent), radial-gradient(55px 1px at 310px 314px, rgb(220 160 255 / 0.60), transparent), radial-gradient(69px 1px at 612px 498px, rgb(255 255 255 / 0.70), transparent), radial-gradient(32px 1px at 36px 271px, rgb(140 225 255 / 0.61), transparent);
+  background-size: 900px 520px;
+  animation: sf-warp-near 11s linear infinite;
+}
+/* Warp speed while the boiler fires. */
+[data-look="scifi"].firing .sf-stars.far { animation-duration: 12s; }
+[data-look="scifi"].firing .sf-stars.near { animation-duration: 2.6s; }
+
+/* ---------- The header: a viewport onto the stars, edged with a laser ---------- */
+
+[data-look="scifi"] .top {
+  /* Dark by day and by night, so its lettering always glows. */
+  --ink: #e2f7ff; --ink-2: #93b6d2; --ink-3: #5f7c99; --line: #1f3b5e; --panel: #0b1328; --panel-2: #0f1a33;
+  --laser: #3ad6ff; --glow: 1;
+  /* Its own layer, above the page, so its starfield sits behind its contents and the phone's tab bar
+     (inside the header) stays above the page. */
+  position: relative; z-index: 5; isolation: isolate;
+  background: radial-gradient(90% 140% at 50% 0%, #10204a, #060a18 70%);
+  color: var(--ink);
+  margin-bottom: 26px;
+}
+[data-look="scifi"] .top::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: radial-gradient(40px 1px at 228px 23px, rgb(140 225 255 / 0.7), transparent), radial-gradient(18px 1px at 560px 70px, rgb(255 255 255 / 0.8), transparent), radial-gradient(60px 1px at 706px 44px, rgb(255 255 255 / 0.6), transparent), radial-gradient(9px 1px at 151px 78px, rgb(140 225 255 / 0.8), transparent), radial-gradient(30px 1px at 440px 13px, rgb(220 160 255 / 0.7), transparent), radial-gradient(6px 1px at 386px 61px, rgb(255 255 255 / 0.9), transparent), radial-gradient(52px 1px at 820px 36px, rgb(140 225 255 / 0.6), transparent), radial-gradient(4px 1px at 36px 51px, rgb(255 255 255 / 0.9), transparent), radial-gradient(12px 1px at 640px 88px, rgb(220 160 255 / 0.7), transparent);
+  background-size: 900px 100px;
+  animation: sf-stream 9s linear infinite;
+  opacity: .9;
+}
+[data-look="scifi"].firing .top::before { animation-duration: 1.8s; }
+/* The laser along the bottom edge, with a bright pulse travelling along it. */
+[data-look="scifi"] .top::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent, #fff 45%, var(--laser-2) 55%, transparent) -30% 0 / 30% 100% no-repeat,
+    linear-gradient(90deg, transparent, var(--laser) 15%, var(--laser) 85%, transparent);
+  box-shadow: 0 0 10px var(--laser), 0 0 22px rgb(58 214 255 / .5);
+  animation: sf-sweep 5s linear infinite;
+}
+
+[data-look="scifi"] .brand h1 {
+  font-weight: 800; letter-spacing: .06em; color: #eafcff;
+  text-shadow: 0 0 12px rgb(58 214 255 / .8), 0 0 2px #fff;
+  animation: sf-flicker 9s linear infinite;
+}
+[data-look="scifi"] .clock { color: var(--laser); font-weight: 700; letter-spacing: .06em; text-shadow: 0 0 8px rgb(58 214 255 / .6); }
+
+/* The warp core: its plasma pulses faster and brighter with the boiler's demand, and rings rise
+   through it while the boiler fires. */
+[data-look="scifi"] .sf-core {
+  position: relative; flex: none; width: 26px; height: 58px; margin: -4px 6px -4px 2px;
+  border-radius: 13px; padding: 4px;
+  background: linear-gradient(90deg, #1a2748, #3a5680 45%, #1a2748);
+  box-shadow:
+    inset 0 0 0 1px rgb(150 220 255 / .5),
+    0 0 calc(8px + var(--boiler-demand, 0) * .3px) rgb(58 214 255 / calc(.35 + var(--boiler-demand, 0) * .006));
+}
+.sf-glass {
+  position: relative; display: block; width: 100%; height: 100%; border-radius: 9px; overflow: hidden;
+  background: linear-gradient(180deg, #7b4dff 0%, #3ad6ff 30%, #e8fdff 50%, #3ad6ff 70%, #7b4dff 100%);
+  filter: brightness(calc(.55 + var(--boiler-demand, 0) * .008)) saturate(1.3);
+  animation: sf-pulse calc(2.8s - var(--boiler-demand, 0) * .022s) ease-in-out infinite;
+}
+.sf-glass i {
+  position: absolute; left: 0; right: 0; height: 3px; top: 100%;
+  background: #fff; box-shadow: 0 0 6px #fff, 0 0 12px #3ad6ff; opacity: 0;
+}
+[data-look="scifi"].firing .sf-glass i { animation: sf-ring 1.6s linear infinite; }
+[data-look="scifi"].firing .sf-glass i:nth-child(2) { animation-delay: .4s; }
+[data-look="scifi"].firing .sf-glass i:nth-child(3) { animation-delay: .8s; }
+[data-look="scifi"].firing .sf-glass i:nth-child(4) { animation-delay: 1.2s; }
+
+/* ---------- Tabs: a console strip, with the current one lit ---------- */
+
+[data-look="scifi"] .tabs {
+  background: rgb(4 8 20 / .75); border: 1px solid #1f3b5e; border-radius: 4px;
+  clip-path: var(--cut-sm);
+}
+[data-look="scifi"] .tabs button { border-radius: 2px; color: #93b6d2; font-weight: 600; letter-spacing: .05em; transition: color .2s, text-shadow .2s; }
+[data-look="scifi"] .tabs button:hover { color: #e2f7ff; text-shadow: 0 0 8px rgb(58 214 255 / .8); }
+[data-look="scifi"] .tabs button[aria-selected="true"] {
+  background: linear-gradient(180deg, rgb(58 214 255 / .28), rgb(58 214 255 / .06));
+  color: #f2fdff; text-shadow: 0 0 8px rgb(58 214 255 / .9);
+  box-shadow: inset 0 -2px 0 #3ad6ff, 0 6px 14px -6px rgb(58 214 255 / .8);
+}
+[data-look="scifi"] .tabs button[aria-selected="true"] svg { color: #3ad6ff; filter: drop-shadow(0 0 4px #3ad6ff); }
+
+/* ---------- Buttons: cut-corner plates with laser edges ---------- */
+
+[data-look="scifi"] .btn {
+  clip-path: var(--cut-sm); border-radius: 0;
+  background: var(--corners-sm), linear-gradient(180deg, color-mix(in oklab, var(--laser) 14%, var(--panel)), var(--panel));
+  border: 1px solid color-mix(in oklab, var(--laser) 55%, var(--line)); color: var(--ink);
+  font-weight: 600; letter-spacing: .03em;
+  box-shadow: inset 0 0 calc(var(--glow) * 10px) rgb(58 214 255 / .15);
+  transition: box-shadow .2s, color .2s;
+}
+[data-look="scifi"] .btn:hover:not(:disabled) { border-color: var(--laser); box-shadow: inset 0 0 14px color-mix(in oklab, var(--laser) 35%, transparent); }
+[data-look="scifi"] .btn:active:not(:disabled) { transform: translateY(1px); }
+[data-look="scifi"] .btn.warm, [data-look="scifi"] .draft-bar .btn.save {
+  background: var(--corners-sm), linear-gradient(90deg, #ff7a3d, #ff4fa3);
+  border-color: #ff9a66; color: #fff; text-shadow: 0 0 6px rgb(120 0 40 / .5);
+  box-shadow: inset 0 0 12px rgb(255 255 255 / .25);
+}
+[data-look="scifi"] .btn.primary { background: var(--corners-sm), linear-gradient(180deg, #4fe0ff, #0aa5d6); color: #031422; border-color: #9af0ff; }
+[data-look="scifi"] .btn.danger-fill { background: linear-gradient(90deg, #ff4d6d, #d6206a); color: #fff; border-color: #ff8aa0; }
+[data-look="scifi"] .btn.danger { color: var(--danger); }
+[data-look="scifi"] .btn.ghost { background: none; border-color: transparent; box-shadow: none; clip-path: none; color: var(--ink-2); }
+[data-look="scifi"] .btn.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--line); }
+
+[data-look="scifi"] .icon-btn {
+  clip-path: var(--cut-sm); border-radius: 0;
+  background: var(--corners-sm), rgb(10 22 48 / .85); border: 1px solid #2d5a86; color: #9fdcff;
+}
+[data-look="scifi"] .icon-btn:hover { color: #fff; border-color: #3ad6ff; box-shadow: inset 0 0 12px rgb(58 214 255 / .4); }
+[data-look="scifi"] .icon-btn[aria-pressed="true"] { background: var(--corners-sm), rgb(58 214 255 / .3); color: #fff; }
+[data-look="scifi"] main .icon-btn { background: var(--corners-sm), var(--panel-2); border-color: var(--line); color: var(--ink-2); }
+[data-look="scifi"] main .icon-btn:hover { color: var(--ink); border-color: var(--laser); }
+
+/* Choices: the chosen one lit. Mode buttons keep their own colours. */
+[data-look="scifi"] .seg { border-radius: 2px; clip-path: var(--cut-sm); background: var(--corners-sm), var(--panel-2); border-color: var(--line); }
+[data-look="scifi"] .seg button { border-radius: 0; }
+[data-look="scifi"] .seg:not(.mode-seg) button[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--laser) 22%, var(--panel)); color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--laser), 0 0 calc(var(--glow) * 12px) rgb(58 214 255 / .35);
+}
+[data-look="scifi"] .mode-seg button[aria-pressed="true"] { box-shadow: 0 0 calc(var(--glow) * 12px) currentColor, inset 0 0 0 1px rgb(255 255 255 / .3); }
+[data-look="scifi"] .mode-seg button[aria-pressed="true"][data-v="auto" i] { box-shadow: 0 0 calc(var(--glow) * 14px) rgb(58 214 255 / .7), inset 0 0 0 1px rgb(255 255 255 / .35); }
+[data-look="scifi"] .mode-seg button[aria-pressed="true"][data-v="manual" i] { box-shadow: 0 0 calc(var(--glow) * 14px) rgb(255 122 61 / .7), inset 0 0 0 1px rgb(255 255 255 / .35); }
+
+[data-look="scifi"] .chip { border-radius: 2px; clip-path: var(--cut-sm); background: var(--corners-sm), var(--panel); }
+[data-look="scifi"] .chip[aria-pressed="true"] { background: var(--corners-sm), color-mix(in oklab, var(--laser) 30%, var(--panel)); color: var(--ink); border-color: var(--laser); }
+
+[data-look="scifi"] .switch .track { border-radius: 2px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }
+[data-look="scifi"] .switch .track::after { border-radius: 1px; background: #9fb8d4; }
+[data-look="scifi"] .switch[aria-checked="true"] .track { background: color-mix(in oklab, var(--laser) 45%, var(--panel)); box-shadow: inset 0 0 0 1px var(--laser), 0 0 calc(var(--glow) * 10px) var(--laser); }
+[data-look="scifi"] .switch[aria-checked="true"] .track::after { background: #fff; box-shadow: 0 0 6px var(--laser); }
+
+[data-look="scifi"] :is(.set-input, .field input, .field select, .price input, .hist-room, .copy-from select, .dev-row select, .dev-row input) {
+  background: var(--panel-2); border-color: var(--line); border-radius: 2px;
+}
+[data-look="scifi"] :is(.set-input, .field input, .field select, .price input, .hist-room):focus { border-color: var(--laser); box-shadow: 0 0 calc(var(--glow) * 10px) rgb(58 214 255 / .4); }
+
+/* ---------- Panels: glass with cut corners, scan lines and a laser along the top ---------- */
+
+[data-look="scifi"] :is(.diag-panel, .timeline, .batt-list, .lib-card, .system-strip, .setup-card, .auth-card, .card) {
+  position: relative;
+  clip-path: var(--cut-lg); border-radius: 0;
+  background: var(--corners-lg), var(--scan), linear-gradient(180deg, color-mix(in oklab, var(--laser) 7%, var(--glass)), var(--glass));
+  border: 1px solid color-mix(in oklab, var(--laser) 40%, var(--line));
+  box-shadow: inset 0 0 calc(var(--glow) * 30px) rgb(58 214 255 / .07), var(--shadow);
+}
+[data-look="scifi"] :is(.diag-panel, .timeline, .batt-list, .lib-card, .system-strip, .setup-card, .auth-card, .card)::after {
+  content: ""; position: absolute; top: 0; left: 14px; right: 0; height: 1.5px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--laser), #fff, var(--laser-2), transparent) -40% 0 / 35% 100% no-repeat;
+  animation: sf-sweep 7s linear infinite;
+  opacity: .9;
+}
+[data-look="scifi"] :is(.diag-panel, .card):nth-child(3n + 2)::after { animation-delay: -2.3s; }
+[data-look="scifi"] :is(.diag-panel, .card):nth-child(3n)::after { animation-delay: -4.6s; }
+[data-look="scifi"] :is(.diag-tile, .batt-tile, .plug, .trip, .icon-room, .mesh-chip, .zone, .backup, .toast, .popover, .look-card) {
+  border-radius: 2px; clip-path: var(--cut-sm);
+  background: var(--corners-sm), var(--scan), var(--glass);
+  border-color: color-mix(in oklab, var(--laser) 35%, var(--line));
+}
+[data-look="scifi"] .look-card[aria-pressed="true"] { border-color: var(--laser); box-shadow: inset 0 0 0 1px var(--laser), inset 0 0 14px rgb(58 214 255 / .25); }
+
+/* Room cards: the accent strip glows in the room's heat colour. */
+[data-look="scifi"] .card::before { height: 3px; box-shadow: 0 0 calc(var(--glow) * 14px) var(--accent, transparent), 0 0 calc(var(--glow) * 4px) var(--accent, transparent); }
+
+/* Hexagonal readouts: room icons and instrument icons. */
+[data-look="scifi"] :is(.room-ico, .trip-ico) {
+  clip-path: var(--hex); border-radius: 0;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--laser) 30%, var(--panel)), color-mix(in oklab, var(--laser) 12%, var(--panel)));
+  color: color-mix(in oklab, var(--laser) 70%, var(--ink));
+}
+[data-look="scifi"] .diag-tile > svg {
+  width: 38px; height: 38px; padding: 9px; margin-top: 0; flex: none; clip-path: var(--hex);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--laser) 28%, var(--panel)), color-mix(in oklab, var(--laser) 10%, var(--panel)));
+}
+[data-look="scifi"] .diag-tile:not(.good, .warn, .critical, .warm) > svg { color: var(--laser); }
+[data-look="scifi"] .diag-tile b { font-size: 19px; font-weight: 700; }
+
+/* The boiler on the Rooms tab: a plasma orb that burns while it fires. */
+[data-look="scifi"] .boiler .flame-ico {
+  border-radius: 50%; background: radial-gradient(circle, #1b2a4f, #0a1226); color: #5f7c99;
+  box-shadow: inset 0 0 0 1px #2d5a86;
+}
+[data-look="scifi"] .boiler.on .flame-ico {
+  background: radial-gradient(circle at 50% 55%, #fff4d0 0%, #ff9a4d 30%, #ff4fa3 60%, #4a1060 100%);
+  color: #fff; box-shadow: 0 0 18px rgb(255 110 90 / .8), 0 0 36px rgb(255 79 163 / .4);
+  animation: sf-orb 1.4s ease-in-out infinite;
+}
+/* Hot water heating: the card's edge runs with light. */
+[data-look="scifi"] .hw-card.on { box-shadow: inset 0 0 0 1px var(--laser), inset 0 0 24px rgb(58 214 255 / .25), var(--shadow); }
+[data-look="scifi"] .hw-card.on::after { animation-duration: 1.8s; height: 2px; }
+
+/* ---------- Headings: holograms, underlined by a laser ---------- */
+
+[data-look="scifi"] .page-title {
+  font-size: 24px; font-weight: 700; letter-spacing: .08em;
+  color: var(--ink); text-shadow: 0 0 calc(var(--glow) * 14px) rgb(58 214 255 / .8);
+  padding: 4px 0 8px; margin: 4px 0 18px; position: relative;
+  animation: sf-flicker 11s linear infinite;
+}
+[data-look="scifi"] .page-title svg { color: var(--laser); filter: drop-shadow(0 0 calc(var(--glow) * 6px) var(--laser)); }
+[data-look="scifi"] .page-title::after {
+  content: ""; position: absolute; left: 0; bottom: 0; width: min(420px, 90vw); height: 2px;
+  background: linear-gradient(90deg, var(--laser), var(--laser-2) 60%, transparent);
+  box-shadow: 0 0 calc(var(--glow) * 10px) var(--laser);
+}
+[data-look="scifi"] .diag-title { font-size: 19px; font-weight: 700; letter-spacing: .06em; margin-top: 38px; animation: sf-flicker 13s linear infinite; }
+[data-look="scifi"] .diag-title svg { color: var(--laser); filter: drop-shadow(0 0 calc(var(--glow) * 5px) var(--laser)); }
+[data-look="scifi"] .diag-title::after {
+  content: ""; flex: 1; min-width: 40px; height: 2px; margin-left: 12px;
+  background:
+    linear-gradient(90deg, transparent, #fff, var(--laser-2), transparent) -40% 0 / 22% 100% no-repeat,
+    linear-gradient(90deg, var(--laser), color-mix(in oklab, var(--laser) 20%, transparent));
+  box-shadow: 0 0 calc(var(--glow) * 8px) var(--laser);
+  animation: sf-sweep 4s linear infinite;
+}
+[data-look="scifi"] .diag-panel h3 { font-size: 14px; font-weight: 600; letter-spacing: .05em; }
+
+/* ---------- Schedules ---------- */
+
+[data-look="scifi"] .band { border-radius: 1px; box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--laser) 25%, transparent); }
+[data-look="scifi"] .band:hover { box-shadow: 0 0 0 1px var(--laser), 0 0 calc(var(--glow) * 12px) var(--laser); }
+[data-look="scifi"] .tl-head, [data-look="scifi"] .timeline .lay-head { background: color-mix(in oklab, var(--laser) 8%, var(--panel-2)); }
+[data-look="scifi"] .now-line { background: var(--laser-2); box-shadow: 0 0 8px var(--laser-2); }
+[data-look="scifi"] .now-tag { background: var(--laser-2); color: #fff; border-radius: 1px; }
+
+/* ---------- Floating things ---------- */
+
+[data-look="scifi"] .tooltip {
+  background: rgb(6 12 28 / .94); color: #e2f7ff; border: 1px solid #3ad6ff; border-radius: 1px;
+  box-shadow: 0 0 14px rgb(58 214 255 / .35);
+}
+[data-look="scifi"] :is(.draft-bar, .selection-bar) {
+  background: rgb(6 12 28 / .94); color: #e2f7ff; border: 1px solid #3ad6ff; border-radius: 2px;
+  box-shadow: 0 0 18px rgb(58 214 255 / .35), 0 16px 40px -12px rgb(0 0 0 / .6);
+}
+[data-look="scifi"] :is(.draft-bar, .selection-bar) .btn:not(.save):not(.solid) { background: rgb(58 214 255 / .1); color: #e2f7ff; border-color: #2d5a86; }
+[data-look="scifi"] .selection-bar select { color: #e2f7ff; border-color: #2d5a86; }
+[data-look="scifi"] dialog {
+  background: var(--scan), var(--panel); border: 1px solid var(--laser); border-radius: 2px;
+  box-shadow: 0 0 calc(var(--glow) * 30px) rgb(58 214 255 / .3), 0 24px 60px -16px rgb(0 0 0 / .7);
+}
+[data-look="scifi"] dialog::backdrop { background: rgb(2 6 18 / .6); backdrop-filter: blur(3px); }
+[data-look="scifi"] .banner { border-radius: 2px; clip-path: var(--cut-sm); }
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 640px) {
+  [data-look="scifi"] .tabs {
+    clip-path: none; border: 0; border-top: 1px solid #3ad6ff; border-radius: 0;
+    background: rgb(4 8 20 / .94); box-shadow: 0 -4px 18px rgb(58 214 255 / .25);
+  }
+  [data-look="scifi"] .tabs button { font-size: 11px; letter-spacing: .02em; }
+  [data-look="scifi"] .tabs button[aria-selected="true"] { background: none; box-shadow: none; }
+  [data-look="scifi"] .tabs button[aria-selected="true"] svg { background: rgb(58 214 255 / .2); color: #fff; }
+  [data-look="scifi"] .sf-core { width: 20px; height: 44px; margin: 0 4px 0 0; }
+  [data-look="scifi"] .page-title { font-size: 20px; }
+  [data-look="scifi"] .big-temp { font-size: 36px; }
+}
+
+/* ---------- Motion ---------- */
+
+@keyframes sf-warp-far { to { transform: translateX(-600px); } }
+@keyframes sf-warp-near { to { transform: translateX(-900px); } }
+@keyframes sf-stream { to { background-position: -900px 0; } }
+@keyframes sf-drift { from { transform: translate(-3%, -2%) rotate(0deg) scale(1); } to { transform: translate(4%, 3%) rotate(8deg) scale(1.12); } }
+@keyframes sf-sweep { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
+@keyframes sf-pulse { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
+@keyframes sf-ring { 0% { top: 100%; opacity: 0; } 15% { opacity: .9; } 100% { top: -10%; opacity: 0; } }
+@keyframes sf-orb { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+@keyframes sf-flicker {
+  0%, 91%, 93.5%, 96%, 100% { opacity: 1; }
+  92% { opacity: .55; }
+  95% { opacity: .8; }
+}

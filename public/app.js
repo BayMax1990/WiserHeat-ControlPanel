@@ -31,13 +31,17 @@ function fmtT(c, deg = true) {
 }
 const round05 = (c) => Math.round(c / 5) * 5;
 
-// Temperature colour ramp: cold blue, neutral grey around 14°, warming to red. The Steampunk theme
-// has its own: verdigris, through pewter and brass, to copper and ember.
+// Temperature colour ramp: cold blue, neutral grey around 14°, warming to red. The other themes have
+// their own. Steampunk: verdigris, through pewter and brass, to copper and ember. Sci-fi: plasma, from
+// ice cyan through deep violet to magenta and a hot plasma orange.
 const HEAT_STOPS = {
   modern: [[50, [61, 109, 176]], [100, [126, 162, 207]], [140, [199, 205, 212]], [170, [239, 182, 92]], [190, [234, 138, 56]], [210, [217, 86, 43]], [240, [168, 42, 42]]],
   steampunk: [[50, [34, 86, 80]], [100, [78, 148, 134]], [140, [182, 172, 148]], [170, [216, 174, 84]], [190, [198, 122, 60]], [210, [188, 70, 34]], [240, [118, 30, 20]]],
+  scifi: [[50, [120, 232, 255]], [100, [58, 160, 235]], [140, [104, 92, 196]], [170, [168, 72, 206]], [190, [232, 68, 164]], [210, [255, 104, 64]], [240, [255, 176, 72]]],
 };
-const look = () => (document.documentElement.dataset.look === 'steampunk' ? 'steampunk' : 'modern');
+// The text colours that sit on a heat colour, dark and light, in each theme.
+const HEAT_INK = { modern: ['#16202b', '#ffffff'], steampunk: ['#24140b', '#fbf1d8'], scifi: ['#06101f', '#ffffff'] };
+const look = () => (HEAT_STOPS[document.documentElement.dataset.look] ? document.documentElement.dataset.look : 'modern');
 function heatRGB(c) {
   const STOPS = HEAT_STOPS[look()];
   c = clamp(c, STOPS[0][0], STOPS[STOPS.length - 1][0]);
@@ -51,7 +55,7 @@ const heat = (c) => (c == null || c === OFF ? null : `rgb(${heatRGB(c).join(',')
 function heatInk(c) {
   if (c == null || c === OFF) return 'var(--ink-2)';
   const [r, g, b] = heatRGB(c);
-  const dark = look() === 'steampunk' ? '#24140b' : '#16202b', light = look() === 'steampunk' ? '#fbf1d8' : '#ffffff';
+  const [dark, light] = HEAT_INK[look()];
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? dark : light;
 }
 const fillStyle = (c) => (c == null || c === OFF ? '' : `background:${heat(c)};color:${heatInk(c)}`);
@@ -2926,13 +2930,23 @@ async function saveHubConnection() {
   if (firstTime && state.domain) { state.view = 'schedules'; store.set('view', state.view); renderAll(); }
 }
 
-// The theme (Modern or Steampunk), separate from light and dark. This browser remembers it.
-const LOOKS = [['modern', 'Modern', ['#e8ecf0', '#16202b', '#d9562b']], ['steampunk', 'Steampunk', ['#2b1710', '#c9a24a', '#4e9a8b']]];
-const LOOK_FONTS = 'https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap';
+// The theme, separate from light and dark. This browser remembers it. Each theme but Modern has its
+// own stylesheet (steampunk.css, scifi.css) and lettering, loaded when it's chosen. Keep LOOK_FONTS in
+// step with the copy in index.html, which loads them before the page first draws.
+const LOOKS = [
+  ['modern', 'Modern', ['#e8ecf0', '#16202b', '#d9562b']],
+  ['steampunk', 'Steampunk', ['#2b1710', '#c9a24a', '#4e9a8b']],
+  ['scifi', 'Sci-fi', ['#05070f', '#3ad6ff', '#ff4fd8']],
+];
+const LOOK_FONTS = {
+  steampunk: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap',
+  scifi: 'https://fonts.googleapis.com/css2?family=Orbitron:wght@500..800&family=Chakra+Petch:wght@400;500;600;700&display=swap',
+};
+const LOOK_BAR = { steampunk: '#2b1710', scifi: '#060a18' }; // the phone's status bar, behind the header
 function setLook(v) {
-  if (v === 'steampunk') {
+  if (LOOK_FONTS[v]) {
     document.documentElement.dataset.look = v;
-    if (!$('#lookFonts')) document.head.insertAdjacentHTML('beforeend', `<link id="lookFonts" rel="stylesheet" href="${LOOK_FONTS}">`);
+    if (!$(`#fonts-${v}`)) document.head.insertAdjacentHTML('beforeend', `<link id="fonts-${v}" rel="stylesheet" href="${LOOK_FONTS[v]}">`);
   } else delete document.documentElement.dataset.look;
   store.set('look', look());
   updateThemeBtn();
@@ -4273,7 +4287,7 @@ function updateThemeBtn() {
   b.title = label;
   b.setAttribute('aria-label', label);
   // The phone's status bar, when installed as an app, matches the page.
-  $('#themeColor')?.setAttribute('content', look() === 'steampunk' ? '#2b1710' : isDark() ? '#0f141a' : '#e8ecf0');
+  $('#themeColor')?.setAttribute('content', LOOK_BAR[look()] || (isDark() ? '#0f141a' : '#e8ecf0'));
 }
 darkQuery.addEventListener('change', updateThemeBtn);
 updateThemeBtn();

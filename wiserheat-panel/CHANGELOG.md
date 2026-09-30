@@ -4,7 +4,7 @@
 
 - **History tab.** Any day, week, month or year the app has recorded, with room temperatures, boiler, zone and hot water hours, and electricity and cost. Turn on **Compare with last year** to see the same period a year earlier beside it.
 - **Years of history.** Every reading is kept for a year, then thinned to one every half hour and kept for five years. Both can be changed under **Settings → Recording**.
-- **Themes**, in Settings: Modern, or Steampunk, with brass and mahogany, a pressure gauge for the boiler and turning gears.
+- **Themes**, in Settings: Modern; Steampunk, with brass and mahogany, a pressure gauge for the boiler and turning gears; or Sci-fi, a starship bridge with a warp core and a warp starfield.
 - **Open on**, in Settings: choose the page the panel opens on, or leave it opening wherever you left off.
 - Recordings are kept one file per day, and only ever added to, instead of one file rewritten after every reading. Your existing history is moved over the first time the new version starts.
 
