@@ -5,7 +5,7 @@
 # version here itself, so Home Assistant only offers updates that exist.
 name: WiserHeat Control Panel
 description: See and control your whole home's Drayton Wiser heating on one screen.
-version: "1.0.0"
+version: "1.1.0"
 slug: wiserheat_panel
 url: https://github.com/BayMax1990/WiserHeat-ControlPanel
 image: ghcr.io/baymax1990/wiserheat-panel
