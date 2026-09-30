@@ -1331,7 +1331,7 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
 /* ---------- Themes ---------- */
 /* The Steampunk theme lives in steampunk.css. These are the parts every theme needs. */
 
-.sp-only, .sf-only { display: none; }
+.sp-only, .sf-only, .bp-only { display: none; }
 .sp-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
 .look-choices { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
 .look-card {

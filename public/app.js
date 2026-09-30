@@ -33,14 +33,16 @@ const round05 = (c) => Math.round(c / 5) * 5;
 
 // Temperature colour ramp: cold blue, neutral grey around 14°, warming to red. The other themes have
 // their own. Steampunk: verdigris, through pewter and brass, to copper and ember. Sci-fi: plasma, from
-// ice cyan through deep violet to magenta and a hot plasma orange.
+// ice cyan through deep violet to magenta and a hot plasma orange. Blueprint: the drawing convention,
+// blue for the cold return, paper-pale in between, and red for the hot flow.
 const HEAT_STOPS = {
   modern: [[50, [61, 109, 176]], [100, [126, 162, 207]], [140, [199, 205, 212]], [170, [239, 182, 92]], [190, [234, 138, 56]], [210, [217, 86, 43]], [240, [168, 42, 42]]],
   steampunk: [[50, [34, 86, 80]], [100, [78, 148, 134]], [140, [182, 172, 148]], [170, [216, 174, 84]], [190, [198, 122, 60]], [210, [188, 70, 34]], [240, [118, 30, 20]]],
   scifi: [[50, [120, 232, 255]], [100, [58, 160, 235]], [140, [104, 92, 196]], [170, [168, 72, 206]], [190, [232, 68, 164]], [210, [255, 104, 64]], [240, [255, 176, 72]]],
+  blueprint: [[50, [30, 96, 196]], [100, [96, 156, 226]], [140, [206, 218, 234]], [170, [240, 196, 132]], [190, [236, 142, 84]], [210, [214, 82, 56]], [240, [158, 36, 36]]],
 };
 // The text colours that sit on a heat colour, dark and light, in each theme.
-const HEAT_INK = { modern: ['#16202b', '#ffffff'], steampunk: ['#24140b', '#fbf1d8'], scifi: ['#06101f', '#ffffff'] };
+const HEAT_INK = { modern: ['#16202b', '#ffffff'], steampunk: ['#24140b', '#fbf1d8'], scifi: ['#06101f', '#ffffff'], blueprint: ['#0e2a52', '#ffffff'] };
 const look = () => (HEAT_STOPS[document.documentElement.dataset.look] ? document.documentElement.dataset.look : 'modern');
 function heatRGB(c) {
   const STOPS = HEAT_STOPS[look()];
@@ -2937,12 +2939,15 @@ const LOOKS = [
   ['modern', 'Modern', ['#e8ecf0', '#16202b', '#d9562b']],
   ['steampunk', 'Steampunk', ['#2b1710', '#c9a24a', '#4e9a8b']],
   ['scifi', 'Sci-fi', ['#05070f', '#3ad6ff', '#ff4fd8']],
+  ['blueprint', 'Blueprint', ['#0e3a73', '#eef5ff', '#e2583a']],
 ];
 const LOOK_FONTS = {
   steampunk: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap',
   scifi: 'https://fonts.googleapis.com/css2?family=Orbitron:wght@500..800&family=Chakra+Petch:wght@400;500;600;700&display=swap',
+  blueprint: 'https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap',
 };
-const LOOK_BAR = { steampunk: '#2b1710', scifi: '#060a18' }; // the phone's status bar, behind the header
+// The phone's status bar, behind the header: one colour, or [light, dark] where the header follows the mode.
+const LOOK_BAR = { steampunk: '#2b1710', scifi: '#060a18', blueprint: ['#f4f7fb', '#0e3a73'] };
 function setLook(v) {
   if (LOOK_FONTS[v]) {
     document.documentElement.dataset.look = v;
@@ -4287,7 +4292,8 @@ function updateThemeBtn() {
   b.title = label;
   b.setAttribute('aria-label', label);
   // The phone's status bar, when installed as an app, matches the page.
-  $('#themeColor')?.setAttribute('content', LOOK_BAR[look()] || (isDark() ? '#0f141a' : '#e8ecf0'));
+  const bar = LOOK_BAR[look()] || ['#e8ecf0', '#0f141a'];
+  $('#themeColor')?.setAttribute('content', Array.isArray(bar) ? bar[isDark() ? 1 : 0] : bar);
 }
 darkQuery.addEventListener('change', updateThemeBtn);
 updateThemeBtn();

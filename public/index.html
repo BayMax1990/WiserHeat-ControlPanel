@@ -15,7 +15,7 @@
   <script>
     // Apply a saved light/dark choice and theme before first paint, so the page doesn't flash.
     try { const t = JSON.parse(localStorage.getItem('wiser.theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
-    try { const l = JSON.parse(localStorage.getItem('wiser.look')); if (l === 'steampunk' || l === 'scifi') document.documentElement.dataset.look = l; } catch {}
+    try { const l = JSON.parse(localStorage.getItem('wiser.look')); if (['steampunk', 'scifi', 'blueprint'].includes(l)) document.documentElement.dataset.look = l; } catch {}
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0662e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,12 +24,14 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="steampunk.css">
   <link rel="stylesheet" href="scifi.css">
+  <link rel="stylesheet" href="blueprint.css">
   <!-- Each theme's lettering, loaded only when it's chosen (see LOOK_FONTS in app.js). -->
   <script>
     (function () {
       const fonts = {
         steampunk: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap',
         scifi: 'https://fonts.googleapis.com/css2?family=Orbitron:wght@500..800&family=Chakra+Petch:wght@400;500;600;700&display=swap',
+        blueprint: 'https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap',
       };
       const l = document.documentElement.dataset.look;
       if (fonts[l]) document.write('<link id="fonts-' + l + '" rel="stylesheet" href="' + fonts[l] + '">');
@@ -84,6 +86,18 @@
       </div>
       <!-- Sci-fi: a warp core, pulsing faster and brighter with the boiler's demand. -->
       <div class="sf-core sf-only" aria-hidden="true"><span class="sf-glass"><i></i><i></i><i></i><i></i></span></div>
+      <!-- Blueprint: a schematic of the boiler and a radiator. While the boiler fires, flow arrows run
+           through the pipes, faster with its demand. -->
+      <svg class="bp-plant bp-only" viewBox="0 0 120 60" aria-hidden="true">
+        <rect class="bp-boiler" x="3" y="8" width="28" height="44"/>
+        <path class="bp-flame" d="M17,42c-5,0-7-4-5-8c1-2,3-3,3-6c3,2,4,4,4,6c1-1,1-2,1-3c2,2,3,4,3,6c0,3-2,5-6,5Z"/>
+        <path class="bp-pipe flow" d="M31,18H48V14H74"/>
+        <path class="bp-pipe return" d="M74,46H48V42H31"/>
+        <path class="bp-arrows flow" d="M31,18H48V14H74"/>
+        <path class="bp-arrows return" d="M74,46H48V42H31"/>
+        <rect class="bp-rad" x="74" y="10" width="42" height="40"/>
+        <path class="bp-fins" d="M81,10V50M88,10V50M95,10V50M102,10V50M109,10V50"/>
+      </svg>
       <svg class="brand-flame" id="brandFlame" aria-hidden="true"><use href="#flame"/></svg>
       <div>
         <h1 id="appTitle">%TITLE%</h1>

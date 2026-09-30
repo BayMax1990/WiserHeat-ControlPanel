@@ -17,6 +17,7 @@
 **Settings**
 - **Theme:** choose Modern, the look so far, or Steampunk: brass and mahogany, parchment by day and oxblood leather by night. A pressure gauge in the header shows the boiler's demand, gears turn faster while it fires, and steam rises while the boiler or hot water is on. Light and dark mode still apply. Each browser remembers its own choice.
 - A **Sci-fi** theme too: a starship bridge, with glass panels, laser-lit edges and hexagonal readouts, a white starship interior by day and deep space by night. The header is a viewport onto the stars, with a warp core that pulses faster and brighter with the boiler's demand, and the stars go to warp while it fires. Temperatures run from ice cyan to plasma orange.
+- A **Blueprint** theme: the heating as an engineer's drawing, blue ink on a white sheet by day and a cyanotype by night, on a drafting grid. Panels are framed like drawing sheets, headings end in dimension lines, and icons sit in callout bubbles. The header has a schematic of the boiler and a radiator: while the boiler fires, the flame lights and arrows run through the flow and return pipes, faster with its demand.
 - **Open on:** choose the page the panel opens on, on every device and in the phone app, or leave it opening wherever you left off. A link or phone shortcut to a particular page still opens that page.
 
 **Fixes**
