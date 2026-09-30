@@ -1327,3 +1327,18 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
   .top-actions .btn { width: 34px; height: 34px; padding: 0; justify-content: center; }
   .top-right .icon-btn { width: 34px; height: 34px; }
 }
+
+/* ---------- Themes ---------- */
+/* The Steampunk theme lives in steampunk.css. These are the parts every theme needs. */
+
+.sp-only { display: none; }
+.sp-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.look-choices { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
+.look-card {
+  display: flex; align-items: center; gap: 10px; padding: 7px 14px 7px 7px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink-2); font-weight: 600;
+}
+.look-card:hover { border-color: var(--ink-3); color: var(--ink); }
+.look-card[aria-pressed="true"] { color: var(--ink); border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.look-swatch { display: flex; border-radius: 7px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); }
+.look-swatch i { width: 12px; height: 26px; }

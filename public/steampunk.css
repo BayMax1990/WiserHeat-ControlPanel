@@ -1,0 +1,427 @@
+/* WiserHeat Control Panel: the Steampunk theme.
+ *
+ * Brass and mahogany: an engine-room control desk. Parchment and brass by day, oxblood leather
+ * and mahogany by night, following the light/dark switch. Only applies when <html data-look="steampunk">,
+ * set from Settings → Theme. The layout is unchanged from the Modern theme, so everything works the same.
+ *
+ * The page's gauge, gears and steam are in index.html (class sp-only). The heat colours are in app.js.
+ */
+
+/* ---------- Colours and lettering ---------- */
+
+/* Day: parchment, sepia ink and brass. */
+:root[data-look="steampunk"] {
+  --bg: #d6c296;
+  --panel: #f1e4c3;
+  --panel-2: #e3d0a4;
+  --ink: #2c190d;
+  --ink-2: #5a3d24;
+  --ink-3: #836545;
+  --line: #ad8a4c;
+  --line-2: #d4be8c;
+  --focus: #7d5a14;
+  --warm: #b4461e;
+  --warm-ink: #943511;
+  --cold: #2b6d62;
+  --good: #4d7a1e;
+  --danger: #a3301d;
+  --warn: #8a5a0c;
+  --mode-auto: #2b6d62; --mode-auto-ink: #fbf1d8;
+  --mode-manual: #a4552a; --mode-manual-ink: #fbf1d8;
+  --mode-off: #6d6357; --mode-off-ink: #fbf1d8;
+  --hatch: #c2a674;
+  --shadow: 0 1px 0 rgb(255 250 230 / .5) inset, 0 2px 3px rgb(60 30 10 / .18), 0 10px 24px -14px rgb(60 30 10 / .45);
+  --display: "Cinzel", "Trajan Pro", Georgia, serif;
+  --body: "Old Standard TT", Georgia, "Times New Roman", serif;
+
+  /* Materials. Brass and copper are the same by day and night; paper and leather change. */
+  --brass: #c9a24a; --brass-hi: #f3dc8e; --brass-lo: #6f4e17;
+  --brass-plate: linear-gradient(180deg, #f5e3a4 0%, #d4b058 38%, #a8812f 52%, #c9a24a 70%, #e6c877 100%);
+  --copper-pipe: linear-gradient(180deg, #f6c79c 0%, #c47a45 30%, #8c4420 70%, #5e2a10 100%);
+  --wood-base: linear-gradient(180deg, #4b2515 0%, #331709 100%);
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='240'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .11' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .09 0 0 0 0 .03 0 0 0 0 .01 1.3 0 0 0 -.42'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .2 0 0 0 0 .08 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.28'/%3E%3C/svg%3E");
+  --rivet: radial-gradient(circle, #fff2c0 0 .8px, #d9b560 1.4px, #8a6420 2.6px, #3b2608 3.2px, transparent 3.8px);
+  --rivets:
+    radial-gradient(circle at 10px 10px, #fff2c0 0 .8px, #d9b560 1.4px, #8a6420 2.6px, #3b2608 3.2px, transparent 3.8px),
+    radial-gradient(circle at calc(100% - 10px) 10px, #fff2c0 0 .8px, #d9b560 1.4px, #8a6420 2.6px, #3b2608 3.2px, transparent 3.8px),
+    radial-gradient(circle at 10px calc(100% - 10px), #fff2c0 0 .8px, #d9b560 1.4px, #8a6420 2.6px, #3b2608 3.2px, transparent 3.8px),
+    radial-gradient(circle at calc(100% - 10px) calc(100% - 10px), #fff2c0 0 .8px, #d9b560 1.4px, #8a6420 2.6px, #3b2608 3.2px, transparent 3.8px);
+  --page: radial-gradient(ellipse at 20% 0%, rgb(255 250 230 / .35), transparent 55%), radial-gradient(ellipse at 100% 100%, rgb(120 70 20 / .22), transparent 60%);
+  color-scheme: light;
+}
+
+/* Night: mahogany, oxblood leather and lamplight. */
+:root[data-look="steampunk"][data-theme="dark"] {
+  --bg: #1c0e08;
+  --panel: #3a2017;
+  --panel-2: #2b1711;
+  --ink: #f1e4c4;
+  --ink-2: #d0b78d;
+  --ink-3: #a08563;
+  --line: #7d5c2d;
+  --line-2: #4d3020;
+  --focus: #f0c75e;
+  --warm: #e37b3e;
+  --warm-ink: #f19a5f;
+  --cold: #62b2a0;
+  --good: #a5c25c;
+  --danger: #f0674b;
+  --warn: #efb84c;
+  --mode-auto: #4e9a8b; --mode-auto-ink: #140a05;
+  --mode-manual: #d0833f; --mode-manual-ink: #140a05;
+  --mode-off: #93897d; --mode-off-ink: #140a05;
+  --hatch: #5e3d29;
+  --shadow: 0 1px 0 rgb(255 225 170 / .07) inset, 0 12px 28px -12px rgb(0 0 0 / .85);
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .05 0 0 0 0 .02 0 0 0 0 .01 0 0 0 .8 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+  --page: radial-gradient(ellipse at 50% -10%, rgb(255 190 110 / .10), transparent 60%);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-look="steampunk"]:not([data-theme="light"]) {
+    --bg: #1c0e08;
+    --panel: #3a2017;
+    --panel-2: #2b1711;
+    --ink: #f1e4c4;
+    --ink-2: #d0b78d;
+    --ink-3: #a08563;
+    --line: #7d5c2d;
+    --line-2: #4d3020;
+    --focus: #f0c75e;
+    --warm: #e37b3e;
+    --warm-ink: #f19a5f;
+    --cold: #62b2a0;
+    --good: #a5c25c;
+    --danger: #f0674b;
+    --warn: #efb84c;
+    --mode-auto: #4e9a8b; --mode-auto-ink: #140a05;
+    --mode-manual: #d0833f; --mode-manual-ink: #140a05;
+    --mode-off: #93897d; --mode-off-ink: #140a05;
+    --hatch: #5e3d29;
+    --shadow: 0 1px 0 rgb(255 225 170 / .07) inset, 0 12px 28px -12px rgb(0 0 0 / .85);
+    --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .05 0 0 0 0 .02 0 0 0 0 .01 0 0 0 .8 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+    --page: radial-gradient(ellipse at 50% -10%, rgb(255 190 110 / .10), transparent 60%);
+    color-scheme: dark;
+  }
+}
+
+[data-look="steampunk"] body {
+  background: var(--page), var(--noise), var(--bg);
+  font-size: 15.5px; line-height: 1.5;
+  font-variant-numeric: lining-nums tabular-nums;
+  scrollbar-color: var(--brass) var(--panel-2);
+}
+[data-look="steampunk"] ::selection { background: color-mix(in oklab, var(--brass) 55%, transparent); }
+[data-look="steampunk"] :focus-visible { outline-color: var(--focus); }
+[data-look="steampunk"] .sp-only { display: block; }
+[data-look="steampunk"] .brand-flame { display: none; }
+[data-look="steampunk"] main, [data-look="steampunk"] #banner { position: relative; z-index: 1; }
+
+/* Engraved lettering: Cinzel wants open spacing, where the Modern faces were set tight. */
+[data-look="steampunk"] :is(.brand h1, .page-title, .diag-title, .big-temp, .setup-card h2, .auth-card h2, .card-layout .group-name, .diag-tile b, .target b, .boiler b) {
+  letter-spacing: .03em; font-variation-settings: normal;
+}
+[data-look="steampunk"] .big-temp { font-weight: 700; letter-spacing: 0; }
+[data-look="steampunk"] .big-temp sup { letter-spacing: 0; }
+[data-look="steampunk"] .room-name { font-weight: 700; letter-spacing: .02em; }
+[data-look="steampunk"] .seg-fill { font-weight: 700; letter-spacing: 0; }
+
+/* ---------- The header: a mahogany desk front with a brass rail and a copper steam pipe ---------- */
+
+[data-look="steampunk"] .top {
+  /* The header is wood by day and by night, so its lettering is always lamplit ivory. */
+  --ink: #f3e6c6; --ink-2: #d7bd8f; --ink-3: #a98b62;
+  --line: #8a6a30; --panel: #4a2718; --panel-2: #2a140a;
+  position: relative;
+  background: var(--grain), var(--wood-base);
+  color: var(--ink);
+  box-shadow: inset 0 -3px 0 #2a1307, inset 0 -5px 0 var(--brass-lo), inset 0 -6px 0 var(--brass-hi), 0 6px 18px -6px rgb(0 0 0 / .6);
+  margin-bottom: 30px;
+}
+/* The steam pipe along the bottom, with flanges. It shimmers while the boiler fires. */
+[data-look="steampunk"] .top::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -12px; height: 10px; z-index: 2; pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent 0 30%, rgb(255 230 190 / .55) 50%, transparent 70%) 0 0 / 260px 100% repeat-x,
+    repeating-linear-gradient(90deg, transparent 0 188px, #3b1a08 188px 189px, #e0bd6a 189px 197px, #3b1a08 197px 198px),
+    var(--copper-pipe);
+  background-blend-mode: normal;
+  box-shadow: 0 2px 3px rgb(0 0 0 / .45);
+  opacity: .96;
+}
+[data-look="steampunk"].firing .top::after { animation: sp-flow 2.2s linear infinite; }
+
+[data-look="steampunk"] .brand h1 {
+  font-weight: 700; letter-spacing: .05em;
+  background: linear-gradient(180deg, #fbeab0 0%, #d8b25a 48%, #9a7024 56%, #e9c979 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 1px 0 rgb(0 0 0 / .8)) drop-shadow(0 0 10px rgb(255 190 90 / .15));
+  padding-bottom: 2px;
+}
+[data-look="steampunk"] .brand-sub { font-style: italic; }
+[data-look="steampunk"] .clock { font-family: var(--display); font-weight: 700; color: var(--brass-hi); letter-spacing: .04em; }
+
+/* The pressure gauge: its needle shows the boiler's demand, and quivers while it fires. */
+[data-look="steampunk"] .sp-gauge { position: relative; width: 60px; height: 60px; flex: none; margin: -4px 4px -4px 30px; } /* room on the left for the gear train */
+.sp-dial { position: relative; z-index: 2; width: 60px; height: 60px; filter: drop-shadow(0 3px 4px rgb(0 0 0 / .55)); }
+.sp-dial .g-bezel { fill: url(#sp-brass); stroke: #4d3410; stroke-width: 1; }
+.sp-dial .g-rim { fill: #2a1508; stroke: none; }
+.sp-dial .g-face { fill: url(#sp-face); stroke: none; }
+.sp-dial .g-ticks { stroke: #3a2412; stroke-width: 1.3; fill: none; }
+.sp-dial .g-red { stroke: #b0301a; stroke-width: 4; fill: none; stroke-linecap: butt; opacity: .85; }
+.sp-dial .g-cap { fill: url(#sp-brass); stroke: #4d3410; stroke-width: 1; }
+.sp-dial .g-needle {
+  transform-box: view-box; transform-origin: 50% 50%;
+  transform: rotate(calc(-120deg + var(--boiler-demand, 0) * 2.4deg));
+  transition: transform 1.6s cubic-bezier(.3, 1.6, .5, 1);
+}
+.sp-dial .g-needle path { fill: #7e1a0c; stroke: #3b0a02; stroke-width: .6; transform-box: view-box; transform-origin: 50% 50%; animation: sp-quiver 1.9s ease-in-out infinite; }
+[data-look="steampunk"].firing .sp-dial .g-needle path { animation-duration: .45s; }
+
+/* The gear train behind the gauge: idling slowly, racing while the boiler fires. */
+.sp-gear { display: block; overflow: visible; }
+.sp-gear.train { position: absolute; z-index: 1; filter: drop-shadow(0 2px 2px rgb(0 0 0 / .6)); animation: sp-spin 14s linear infinite; }
+.sp-gear.train.a { width: 40px; height: 40px; left: -24px; top: 26px; }
+.sp-gear.train.b { width: 27px; height: 27px; left: -34px; top: 5px; animation-duration: 9.3s; }
+.sp-gear.rev { animation-direction: reverse; }
+[data-look="steampunk"].firing .sp-gear.train.a { animation-duration: 2.4s; }
+[data-look="steampunk"].firing .sp-gear.train.b { animation-duration: 1.6s; }
+
+/* Steam from the gauge while the boiler fires or the hot water heats. */
+.sp-steam { position: absolute; left: 50%; top: -6px; width: 0; height: 0; z-index: 3; pointer-events: none; }
+.sp-steam i {
+  position: absolute; left: -7px; top: 0; width: 14px; height: 14px; border-radius: 50%;
+  background: rgb(250 242 225 / .75); filter: blur(3px); opacity: 0;
+}
+[data-look="steampunk"]:is(.firing, .hw-on) .sp-steam i { animation: sp-steam 2.8s ease-out infinite; }
+[data-look="steampunk"]:is(.firing, .hw-on) .sp-steam i:nth-child(2) { animation-delay: .9s; }
+[data-look="steampunk"]:is(.firing, .hw-on) .sp-steam i:nth-child(3) { animation-delay: 1.8s; }
+
+/* Big idle gears turning slowly behind the page. */
+.sp-deco { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.sp-deco .sp-gear { position: absolute; opacity: .13; animation: sp-spin 90s linear infinite; }
+.sp-deco .big { width: 360px; height: 360px; left: -130px; bottom: -130px; }
+.sp-deco .mid { width: 210px; height: 210px; left: 158px; bottom: -8px; animation-duration: 60s; }
+.sp-deco .corner { width: 260px; height: 260px; right: -110px; top: 34%; opacity: .09; animation-duration: 120s; animation-direction: reverse; }
+[data-look="steampunk"][data-theme="dark"] .sp-deco .sp-gear { opacity: .09; }
+@media (prefers-color-scheme: dark) { [data-look="steampunk"]:not([data-theme="light"]) .sp-deco .sp-gear { opacity: .09; } }
+[data-look="steampunk"].firing .sp-deco .big { animation-duration: 24s; }
+[data-look="steampunk"].firing .sp-deco .mid { animation-duration: 16s; }
+
+/* ---------- Tabs: brass nameplates set into a dark slot ---------- */
+
+[data-look="steampunk"] .tabs {
+  background: linear-gradient(180deg, #160903, #2a140a);
+  border: 1px solid var(--brass-lo); border-radius: 8px;
+  box-shadow: inset 0 2px 5px rgb(0 0 0 / .7), 0 1px 0 rgb(255 220 150 / .15);
+}
+[data-look="steampunk"] .tabs button {
+  font-family: var(--display); font-weight: 700; font-size: 13.5px; letter-spacing: .04em;
+  border-radius: 5px; color: #d7bd8f; transition: color .2s;
+}
+[data-look="steampunk"] .tabs button:hover { color: var(--brass-hi); }
+[data-look="steampunk"] .tabs button[aria-selected="true"] {
+  background: var(--brass-plate); color: #2a1709;
+  text-shadow: 0 1px 0 rgb(255 245 205 / .7);
+  box-shadow: inset 0 1px 0 #fff6d4, inset 0 -1px 0 #6f4e17, 0 2px 4px rgb(0 0 0 / .6);
+}
+[data-look="steampunk"] .tabs button[aria-selected="true"] svg { color: #5a1d0c; }
+
+/* ---------- Buttons: brass plates, copper enamel and iron ---------- */
+
+[data-look="steampunk"] .btn {
+  background: var(--brass-plate); color: #2a1709; border: 1px solid var(--brass-lo); border-radius: 6px;
+  font-weight: 700; text-shadow: 0 1px 0 rgb(255 245 205 / .6);
+  box-shadow: inset 0 1px 0 rgb(255 250 220 / .8), inset 0 -1px 0 rgb(80 50 10 / .35), 0 1px 2px rgb(0 0 0 / .35);
+}
+[data-look="steampunk"] .btn:hover:not(:disabled) { border-color: #3b2608; filter: brightness(1.06); }
+[data-look="steampunk"] .btn:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 2px 3px rgb(60 35 5 / .45); }
+[data-look="steampunk"] .btn.warm, [data-look="steampunk"] .draft-bar .btn.save {
+  background: linear-gradient(180deg, #f0a06a 0%, #c9562a 45%, #9a3714 55%, #b8481e 100%);
+  color: #fff4e2; border-color: #5a1c07; text-shadow: 0 1px 0 rgb(70 20 0 / .6);
+}
+[data-look="steampunk"] .btn.primary {
+  background: linear-gradient(180deg, #5a4838 0%, #2c1f15 100%); color: var(--brass-hi); border-color: var(--brass);
+  text-shadow: 0 1px 0 #000;
+}
+[data-look="steampunk"] .btn.danger-fill { background: linear-gradient(180deg, #d9583f, #8f2412); color: #fff4e2; border-color: #4d1006; text-shadow: none; }
+[data-look="steampunk"] .btn.danger { color: #8f2412; }
+[data-look="steampunk"] .btn.ghost { background: none; border-color: transparent; box-shadow: none; color: var(--ink-2); text-shadow: none; }
+[data-look="steampunk"] .btn.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--line); filter: none; }
+
+/* Round buttons are brass knobs. */
+[data-look="steampunk"] .icon-btn {
+  border-radius: 50%; border: 1px solid var(--brass-lo);
+  background: radial-gradient(circle at 35% 30%, #fff1c2 0%, #d9b560 30%, #9a7024 70%, #6f4e17 100%);
+  color: #2a1709; box-shadow: inset 0 -2px 3px rgb(60 35 5 / .5), 0 2px 3px rgb(0 0 0 / .5);
+}
+[data-look="steampunk"] .icon-btn:hover { color: #000; border-color: #3b2608; filter: brightness(1.08); }
+[data-look="steampunk"] .icon-btn[aria-pressed="true"] { background: radial-gradient(circle at 50% 50%, #f5b16f, #b8481e 70%, #6e2a0c); color: #fff4e2; }
+[data-look="steampunk"] .icon-btn:disabled { filter: grayscale(.7) brightness(.8); }
+
+/* Choices: a recessed slot, with the chosen one a raised brass plate. Mode buttons keep their enamel colours. */
+[data-look="steampunk"] .seg {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px;
+  box-shadow: inset 0 2px 4px rgb(40 20 5 / .35);
+}
+[data-look="steampunk"] .seg button { border-radius: 5px; }
+[data-look="steampunk"] .seg:not(.mode-seg) button[aria-pressed="true"] {
+  background: var(--brass-plate); color: #2a1709; text-shadow: 0 1px 0 rgb(255 245 205 / .6);
+  box-shadow: inset 0 1px 0 #fff6d4, 0 1px 3px rgb(0 0 0 / .45);
+}
+[data-look="steampunk"] .mode-seg button[aria-pressed="true"] { box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -2px 0 rgb(0 0 0 / .25), 0 1px 3px rgb(0 0 0 / .4); }
+
+[data-look="steampunk"] .chip { border-color: var(--line); background: var(--panel); border-radius: 6px; }
+[data-look="steampunk"] .chip[aria-pressed="true"] { background: var(--brass-plate); color: #2a1709; border-color: var(--brass-lo); }
+
+/* Switches: a lever in an iron slot, with a brass knob. */
+[data-look="steampunk"] .switch .track { background: #2a1a10; box-shadow: inset 0 2px 3px rgb(0 0 0 / .7); border-radius: 4px; }
+[data-look="steampunk"] .switch .track::after {
+  background: radial-gradient(circle at 35% 30%, #fff1c2, #c9a24a 55%, #6f4e17); border-radius: 50%;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .6);
+}
+[data-look="steampunk"] .switch[aria-checked="true"] .track { background: linear-gradient(180deg, #2f6f5e, #4e9a8b); }
+
+/* Typing boxes: pressed into the paper. */
+[data-look="steampunk"] :is(.set-input, .field input, .field select, .price input, .hist-room, .copy-from select, .dev-row select, .dev-row input) {
+  background: var(--panel-2); border-color: var(--line); border-radius: 5px;
+  box-shadow: inset 0 2px 3px rgb(40 20 5 / .25);
+}
+
+/* ---------- Panels: riveted plates with a brass frame ---------- */
+
+[data-look="steampunk"] :is(.diag-panel, .timeline, .batt-list, .lib-card, .system-strip, .setup-card, .auth-card, .card) {
+  background: var(--rivets), var(--noise), linear-gradient(180deg, color-mix(in oklab, var(--panel) 92%, #fff), var(--panel));
+  border: 1px solid var(--brass-lo); border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgb(255 235 180 / .18), inset 0 0 0 4px transparent, inset 0 0 0 5px color-mix(in oklab, var(--brass) 38%, transparent), var(--shadow);
+}
+[data-look="steampunk"] :is(.diag-tile, .batt-tile, .plug, .trip, .icon-room, .mesh-chip, .zone, .backup, .toast, .popover) {
+  background: var(--noise), var(--panel);
+  border-color: color-mix(in oklab, var(--brass) 60%, var(--line)); border-radius: 8px;
+}
+[data-look="steampunk"] .diag-tile { box-shadow: inset 0 0 0 1px rgb(255 235 180 / .15), var(--shadow); }
+
+/* Room cards: the accent strip becomes an enamelled band under a brass rule. */
+[data-look="steampunk"] .card::before { height: 6px; box-shadow: inset 0 -1px 0 var(--brass-lo), inset 0 1px 0 rgb(255 255 255 / .3); }
+[data-look="steampunk"] .card { padding-top: 20px; }
+
+/* Portholes: room icons and instrument icons sit in brass-rimmed dials. */
+[data-look="steampunk"] :is(.room-ico, .trip-ico) {
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #fbf3dc, #e3d3aa 70%, #bda36c);
+  color: #3a2412; box-shadow: inset 0 0 0 2px #2a1508, 0 0 0 2px var(--brass), 0 0 0 3px var(--brass-lo), 0 2px 3px rgb(0 0 0 / .4);
+}
+[data-look="steampunk"] .diag-tile > svg {
+  width: 38px; height: 38px; padding: 8px; margin-top: 0; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 40% 35%, #fbf3dc, #e3d3aa 70%, #bda36c);
+  box-shadow: inset 0 0 0 2px #2a1508, 0 0 0 2px var(--brass), 0 0 0 3px var(--brass-lo), 0 2px 3px rgb(0 0 0 / .4);
+}
+[data-look="steampunk"] .diag-tile:not(.good, .warn, .critical, .warm) > svg { color: #3a2412; }
+[data-look="steampunk"] .diag-tile.warm > svg { color: #b4321a; animation: sp-glow 2.4s ease-in-out infinite; }
+[data-look="steampunk"] .diag-tile b { font-weight: 700; font-size: 21px; }
+
+/* The boiler's firebox on the Rooms tab: a porthole that glows while it fires. */
+[data-look="steampunk"] .boiler .flame-ico {
+  border-radius: 50%; background: radial-gradient(circle at 50% 60%, #3a1a0c, #1a0b05);
+  color: #6d4a2a; box-shadow: inset 0 0 0 2px #120602, 0 0 0 3px var(--brass), 0 0 0 4px var(--brass-lo);
+}
+[data-look="steampunk"] .boiler.on .flame-ico {
+  background: radial-gradient(circle at 50% 65%, #ffd27a 0%, #f07a2a 30%, #9a2a0c 65%, #2a0c04 100%);
+  color: #fff1c2; animation: sp-glow 1.6s ease-in-out infinite;
+}
+
+/* The hot water card lets off steam while it heats. */
+[data-look="steampunk"] .hw-card.on::after {
+  content: ""; position: absolute; right: 30px; top: 42px; width: 18px; height: 18px; border-radius: 50%;
+  background: rgb(250 242 225 / .7); filter: blur(4px); pointer-events: none;
+  animation: sp-steam 3.2s ease-out infinite;
+}
+[data-look="steampunk"] .card-flags .hot svg { animation: sp-glow 1.4s ease-in-out infinite; }
+
+/* ---------- Headings: brass nameplates and copper pipework ---------- */
+
+[data-look="steampunk"] .page-title {
+  display: inline-flex; padding: 8px 26px 7px; margin: 6px 0 16px;
+  font-size: 24px; font-weight: 700; letter-spacing: .06em; color: #2a1709;
+  background:
+    radial-gradient(circle at 11px 50%, #fff2c0 0 .8px, #d9b560 1.4px, #8a6420 2.6px, #3b2608 3.2px, transparent 3.8px),
+    radial-gradient(circle at calc(100% - 11px) 50%, #fff2c0 0 .8px, #d9b560 1.4px, #8a6420 2.6px, #3b2608 3.2px, transparent 3.8px),
+    var(--brass-plate);
+  border: 1px solid var(--brass-lo); border-radius: 4px;
+  text-shadow: 0 1px 0 rgb(255 245 205 / .75), 0 -1px 0 rgb(70 40 5 / .35);
+  box-shadow: inset 0 1px 0 #fff6d4, 0 3px 6px -2px rgb(40 20 5 / .55);
+}
+[data-look="steampunk"] .page-title svg { color: #3a2412; width: 22px; height: 22px; }
+
+/* Section headings run into a length of copper pipe, with a flange every so often. */
+[data-look="steampunk"] .diag-title { font-weight: 700; font-size: 21px; margin-top: 38px; }
+[data-look="steampunk"] .diag-title svg { color: var(--brass-lo); }
+[data-look="steampunk"][data-theme="dark"] .diag-title svg { color: var(--brass); }
+@media (prefers-color-scheme: dark) { [data-look="steampunk"]:not([data-theme="light"]) .diag-title svg { color: var(--brass); } }
+[data-look="steampunk"] .diag-title::after {
+  content: ""; flex: 1; height: 9px; margin-left: 10px; border-radius: 5px; min-width: 40px;
+  background:
+    linear-gradient(90deg, transparent 0 30%, rgb(255 230 190 / .5) 50%, transparent 70%) 0 0 / 260px 100% repeat-x,
+    repeating-linear-gradient(90deg, transparent 0 150px, #3b1a08 150px 151px, #e0bd6a 151px 159px, #3b1a08 159px 160px),
+    var(--copper-pipe);
+  box-shadow: 0 2px 2px rgb(40 15 0 / .35);
+}
+[data-look="steampunk"].firing .diag-title::after { animation: sp-flow 3s linear infinite; }
+[data-look="steampunk"] .diag-panel h3 { font-weight: 700; letter-spacing: .03em; }
+
+/* ---------- Schedules: bands set into grooves ---------- */
+
+[data-look="steampunk"] .band { border-radius: 4px; box-shadow: inset 0 2px 3px rgb(30 12 2 / .35); }
+[data-look="steampunk"] .band:hover { box-shadow: 0 0 0 2px var(--brass), inset 0 2px 3px rgb(30 12 2 / .35); }
+[data-look="steampunk"] .tl-head, [data-look="steampunk"] .timeline .lay-head { background: color-mix(in oklab, var(--panel-2) 85%, var(--brass)); }
+[data-look="steampunk"] .now-line { background: #b0301a; box-shadow: 0 0 6px rgb(255 120 60 / .6); }
+[data-look="steampunk"] .now-tag { background: #7e1a0c; color: #fff1d6; }
+
+/* ---------- Floating things ---------- */
+
+[data-look="steampunk"] .tooltip {
+  background: linear-gradient(180deg, #2e170c, #1b0c05); color: #f1e4c4;
+  border: 1px solid var(--brass); border-radius: 5px; box-shadow: 0 6px 16px -4px rgb(0 0 0 / .7);
+}
+[data-look="steampunk"] :is(.draft-bar, .selection-bar) {
+  background: var(--grain), var(--wood-base); color: #f3e6c6;
+  border: 1px solid var(--brass); border-radius: 8px;
+}
+[data-look="steampunk"] :is(.draft-bar, .selection-bar) .btn:not(.save):not(.solid) { background: rgb(0 0 0 / .2); color: #f3e6c6; border-color: #8a6a30; text-shadow: none; box-shadow: none; }
+[data-look="steampunk"] .selection-bar select { color: #f3e6c6; border-color: #8a6a30; }
+[data-look="steampunk"] dialog {
+  background: var(--noise), var(--panel); border: 1px solid var(--brass-lo);
+  box-shadow: inset 0 0 0 4px transparent, inset 0 0 0 5px color-mix(in oklab, var(--brass) 45%, transparent), 0 24px 60px -16px rgb(0 0 0 / .7);
+}
+[data-look="steampunk"] dialog::backdrop { background: rgb(30 14 4 / .55); }
+[data-look="steampunk"] .banner { border-radius: 8px; background: var(--noise), color-mix(in oklab, var(--cold) 14%, var(--panel)); }
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 640px) {
+  [data-look="steampunk"] .tabs {
+    background: var(--grain), var(--wood-base); border: 0; border-top: 2px solid var(--brass);
+    border-radius: 0; box-shadow: 0 -4px 12px rgb(0 0 0 / .45);
+  }
+  [data-look="steampunk"] .tabs button { font-size: 11px; letter-spacing: .02em; }
+  [data-look="steampunk"] .tabs button[aria-selected="true"] { background: none; box-shadow: none; color: var(--brass-hi); text-shadow: none; }
+  [data-look="steampunk"] .tabs button[aria-selected="true"] svg { background: var(--brass-plate); color: #2a1709; box-shadow: 0 1px 3px rgb(0 0 0 / .6); }
+  [data-look="steampunk"] .sp-gauge { width: 44px; height: 44px; margin: 0 2px 0 4px; }
+  [data-look="steampunk"] .sp-dial { width: 44px; height: 44px; }
+  [data-look="steampunk"] .sp-gear.train { display: none; }
+  [data-look="steampunk"] .sp-deco .mid { display: none; }
+  [data-look="steampunk"] .page-title { font-size: 20px; }
+  [data-look="steampunk"] .top { margin-bottom: 24px; }
+}
+
+/* ---------- Motion ---------- */
+
+@keyframes sp-spin { to { transform: rotate(360deg); } }
+@keyframes sp-flow { to { background-position: 260px 0, 0 0, 0 0; } }
+@keyframes sp-quiver { 0%, 100% { rotate: -1.2deg; } 50% { rotate: 1.4deg; } }
+@keyframes sp-steam {
+  0% { transform: translate(0, 0) scale(.5); opacity: 0; }
+  15% { opacity: .85; }
+  100% { transform: translate(10px, -46px) scale(2.4); opacity: 0; }
+}
+@keyframes sp-glow { 0%, 100% { filter: drop-shadow(0 0 2px rgb(255 140 50 / .5)); } 50% { filter: drop-shadow(0 0 7px rgb(255 150 60 / .95)); } }

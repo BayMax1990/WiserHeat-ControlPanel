@@ -31,9 +31,15 @@ function fmtT(c, deg = true) {
 }
 const round05 = (c) => Math.round(c / 5) * 5;
 
-// Temperature colour ramp: cold blue, neutral grey around 14°, warming to red.
-const STOPS = [[50, [61, 109, 176]], [100, [126, 162, 207]], [140, [199, 205, 212]], [170, [239, 182, 92]], [190, [234, 138, 56]], [210, [217, 86, 43]], [240, [168, 42, 42]]];
+// Temperature colour ramp: cold blue, neutral grey around 14°, warming to red. The Steampunk theme
+// has its own: verdigris, through pewter and brass, to copper and ember.
+const HEAT_STOPS = {
+  modern: [[50, [61, 109, 176]], [100, [126, 162, 207]], [140, [199, 205, 212]], [170, [239, 182, 92]], [190, [234, 138, 56]], [210, [217, 86, 43]], [240, [168, 42, 42]]],
+  steampunk: [[50, [34, 86, 80]], [100, [78, 148, 134]], [140, [182, 172, 148]], [170, [216, 174, 84]], [190, [198, 122, 60]], [210, [188, 70, 34]], [240, [118, 30, 20]]],
+};
+const look = () => (document.documentElement.dataset.look === 'steampunk' ? 'steampunk' : 'modern');
 function heatRGB(c) {
+  const STOPS = HEAT_STOPS[look()];
   c = clamp(c, STOPS[0][0], STOPS[STOPS.length - 1][0]);
   for (let i = 1; i < STOPS.length; i++) {
     const [t1, a] = STOPS[i - 1], [t2, b] = STOPS[i];
@@ -45,7 +51,8 @@ const heat = (c) => (c == null || c === OFF ? null : `rgb(${heatRGB(c).join(',')
 function heatInk(c) {
   if (c == null || c === OFF) return 'var(--ink-2)';
   const [r, g, b] = heatRGB(c);
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? '#16202b' : '#ffffff';
+  const dark = look() === 'steampunk' ? '#24140b' : '#16202b', light = look() === 'steampunk' ? '#fbf1d8' : '#ffffff';
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? dark : light;
 }
 const fillStyle = (c) => (c == null || c === OFF ? '' : `background:${heat(c)};color:${heatInk(c)}`);
 
@@ -283,6 +290,11 @@ function renderHeader() {
   }
   const firing = boilerFiring();
   flame.classList.toggle('on', firing);
+  // For the Steampunk theme's gauge, gears and steam.
+  const root = document.documentElement;
+  root.classList.toggle('firing', firing);
+  root.classList.toggle('hw-on', !!hotWater() && hwOn());
+  root.style.setProperty('--boiler-demand', String(firing ? Math.max(boilerDemand(), 8) : 0));
   $('#tab-lights').hidden = !hasLightsOrBlinds();
   const count = d.Room?.length || 0;
   const hw = hotWater() ? ` Hot water ${hwOn() ? 'on' : 'off'}.` : '';
@@ -2775,6 +2787,11 @@ function settingsView() {
         <div class="seg" role="group" aria-label="Appearance">${[['system', 'Follow computer'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button data-act="theme-set" data-v="${k}" aria-pressed="${theme === k}">${l}</button>`).join('')}</div>
       </div>
       <div class="setting">
+        <div><b>Theme</b><p>The look of the whole panel. Light and dark mode still apply to it. This browser remembers the choice.</p></div>
+        <div class="look-choices" role="group" aria-label="Theme">${LOOKS.map(([k, l, sw]) => `<button class="look-card" data-act="look-set" data-v="${k}" aria-pressed="${look() === k}">
+          <span class="look-swatch">${sw.map((c) => `<i style="background:${c}"></i>`).join('')}</span>${l}</button>`).join('')}</div>
+      </div>
+      <div class="setting">
         <div><b>Open on</b><p>The page the panel shows when it's opened, on every device. A link or phone shortcut to a particular page still opens that page.</p></div>
         <select class="set-input set-select" data-set="startView" data-k="set-start" aria-label="Open on">${START_CHOICES
           .filter(([v]) => v !== 'lights' || (state.domain && hasLightsOrBlinds()) || st.startView === 'lights')
@@ -2907,6 +2924,19 @@ async function saveHubConnection() {
   state.loading = !state.domain;
   await refresh();
   if (firstTime && state.domain) { state.view = 'schedules'; store.set('view', state.view); renderAll(); }
+}
+
+// The theme (Modern or Steampunk), separate from light and dark. This browser remembers it.
+const LOOKS = [['modern', 'Modern', ['#e8ecf0', '#16202b', '#d9562b']], ['steampunk', 'Steampunk', ['#2b1710', '#c9a24a', '#4e9a8b']]];
+const LOOK_FONTS = 'https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap';
+function setLook(v) {
+  if (v === 'steampunk') {
+    document.documentElement.dataset.look = v;
+    if (!$('#lookFonts')) document.head.insertAdjacentHTML('beforeend', `<link id="lookFonts" rel="stylesheet" href="${LOOK_FONTS}">`);
+  } else delete document.documentElement.dataset.look;
+  store.set('look', look());
+  updateThemeBtn();
+  renderAll(); // heat colours are worked out when drawing
 }
 
 function setTheme(v) {
@@ -3994,6 +4024,7 @@ document.addEventListener('click', (e) => {
     case 'refresh': return refresh();
     case 'open-settings': state.view = 'settings'; store.set('view', state.view); renderAll(); return scrollTo(0, 0);
     case 'theme-set': setTheme(b.dataset.v); return renderMain();
+    case 'look-set': return setLook(b.dataset.v);
     case 'set-choice': {
       const v = Number(b.dataset.v), was = state.settings?.[b.dataset.key];
       if (b.dataset.key === 'historyKeepYears' && v && (!was || v < was)
@@ -4242,7 +4273,7 @@ function updateThemeBtn() {
   b.title = label;
   b.setAttribute('aria-label', label);
   // The phone's status bar, when installed as an app, matches the page.
-  $('#themeColor')?.setAttribute('content', isDark() ? '#0f141a' : '#e8ecf0');
+  $('#themeColor')?.setAttribute('content', look() === 'steampunk' ? '#2b1710' : isDark() ? '#0f141a' : '#e8ecf0');
 }
 darkQuery.addEventListener('change', updateThemeBtn);
 updateThemeBtn();

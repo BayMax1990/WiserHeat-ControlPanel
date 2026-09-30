@@ -13,20 +13,63 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="#e8ecf0" id="themeColor">
   <script>
-    // Apply a saved light/dark choice before first paint, so the page doesn't flash.
+    // Apply a saved light/dark choice and theme before first paint, so the page doesn't flash.
     try { const t = JSON.parse(localStorage.getItem('wiser.theme')); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+    try { if (JSON.parse(localStorage.getItem('wiser.look')) === 'steampunk') document.documentElement.dataset.look = 'steampunk'; } catch {}
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e0662e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Sans:wght@400..700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="steampunk.css">
+  <!-- The Steampunk theme's lettering, loaded only when it's chosen (see setLook in app.js). -->
+  <script>
+    if (document.documentElement.dataset.look === 'steampunk') document.write('<link id="lookFonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500..800&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&display=swap">');
+  </script>
 </head>
 <body>
   <div id="sprite" aria-hidden="true"></div>
 
+  <!-- Steampunk theme: brass and gears. Hidden in the Modern theme. -->
+  <svg class="sp-defs" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="sp-brass" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#f3dc8e"/><stop offset=".35" stop-color="#c9a24a"/><stop offset=".6" stop-color="#8a6420"/><stop offset=".85" stop-color="#d8b660"/><stop offset="1" stop-color="#7a5519"/>
+      </linearGradient>
+      <linearGradient id="sp-copper" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#f0b27a"/><stop offset=".45" stop-color="#b8693a"/><stop offset=".8" stop-color="#7a3c1c"/><stop offset="1" stop-color="#c57a45"/>
+      </linearGradient>
+      <radialGradient id="sp-face" cx=".45" cy=".4" r=".7">
+        <stop offset="0" stop-color="#fbf3dc"/><stop offset=".75" stop-color="#eadcb4"/><stop offset="1" stop-color="#c9b27d"/>
+      </radialGradient>
+      <symbol id="sp-gear12" viewBox="0 0 100 100"><path fill="url(#sp-brass)" stroke="#4d3410" stroke-width="1.2" fill-rule="evenodd" d="M89.51,43.74L98.83,45.90L98.83,54.10L89.51,56.26L87.34,64.33L94.34,70.86L90.24,77.96L81.09,75.17L75.17,81.09L77.96,90.24L70.86,94.34L64.33,87.34L56.26,89.51L54.10,98.83L45.90,98.83L43.74,89.51L35.67,87.34L29.14,94.34L22.04,90.24L24.83,81.09L18.91,75.17L9.76,77.96L5.66,70.86L12.66,64.33L10.49,56.26L1.17,54.10L1.17,45.90L10.49,43.74L12.66,35.67L5.66,29.14L9.76,22.04L18.91,24.83L24.83,18.91L22.04,9.76L29.14,5.66L35.67,12.66L43.74,10.49L45.90,1.17L54.10,1.17L56.26,10.49L64.33,12.66L70.86,5.66L77.96,9.76L75.17,18.91L81.09,24.83L90.24,22.04L94.34,29.14L87.34,35.67ZM57.00,50.00a7,7 0 1 0 -14,0a7,7 0 1 0 14,0ZM76.77,63.64a8,8 0 1 0 -16,0a8,8 0 1 0 16,0ZM50.83,72.06a8,8 0 1 0 -16,0a8,8 0 1 0 16,0ZM34.80,50.00a8,8 0 1 0 -16,0a8,8 0 1 0 16,0ZM50.83,27.94a8,8 0 1 0 -16,0a8,8 0 1 0 16,0ZM76.77,36.36a8,8 0 1 0 -16,0a8,8 0 1 0 16,0Z"/></symbol>
+      <symbol id="sp-gear8" viewBox="0 0 100 100"><path fill="url(#sp-brass)" stroke="#4d3410" stroke-width="1.2" fill-rule="evenodd" d="M85.98,41.36L98.61,43.86L98.61,56.14L85.98,58.64L81.55,69.33L88.72,80.03L80.03,88.72L69.33,81.55L58.64,85.98L56.14,98.61L43.86,98.61L41.36,85.98L30.67,81.55L19.97,88.72L11.28,80.03L18.45,69.33L14.02,58.64L1.39,56.14L1.39,43.86L14.02,41.36L18.45,30.67L11.28,19.97L19.97,11.28L30.67,18.45L41.36,14.02L43.86,1.39L56.14,1.39L58.64,14.02L69.33,18.45L80.03,11.28L88.72,19.97L81.55,30.67ZM59.00,50.00a9,9 0 1 0 -18,0a9,9 0 1 0 18,0Z"/></symbol>
+    </defs>
+  </svg>
+  <div class="sp-deco sp-only" aria-hidden="true">
+    <svg class="sp-gear big"><use href="#sp-gear12"/></svg>
+    <svg class="sp-gear mid rev"><use href="#sp-gear8"/></svg>
+    <svg class="sp-gear corner"><use href="#sp-gear12"/></svg>
+  </div>
+
   <header class="top">
     <div class="brand">
+      <!-- Steampunk: a pressure gauge whose needle shows the boiler's demand, with a gear train behind it. -->
+      <div class="sp-gauge sp-only" aria-hidden="true">
+        <svg class="sp-gear train a"><use href="#sp-gear12"/></svg>
+        <svg class="sp-gear train b rev"><use href="#sp-gear8"/></svg>
+        <svg class="sp-dial" viewBox="0 0 100 100">
+          <circle class="g-bezel" cx="50" cy="50" r="49"/>
+          <circle class="g-rim" cx="50" cy="50" r="43"/>
+          <circle class="g-face" cx="50" cy="50" r="40"/>
+          <path class="g-red" d="M81.38,39.80A33,33 0 0 1 78.58,66.50"/>
+          <path class="g-ticks" d="M18.82,68.00L24.89,64.50M15.76,61.12L19.57,59.89M14.20,53.76L21.16,53.03M14.20,46.24L18.18,46.66M15.76,38.88L22.42,41.04M18.82,32.00L22.29,34.00M23.25,25.91L28.45,30.60M28.84,20.88L31.19,24.11M35.36,17.11L38.20,23.51M42.52,14.79L43.35,18.70M50.00,14.00L50.00,21.00M57.48,14.79L56.65,18.70M64.64,17.11L61.80,23.51M71.16,20.88L68.81,24.11M76.75,25.91L71.55,30.60M81.18,32.00L77.71,34.00M84.24,38.88L77.58,41.04M85.80,46.24L81.82,46.66M85.80,53.76L78.84,53.03M84.24,61.12L80.43,59.89M81.18,68.00L75.11,64.50"/>
+          <g class="g-needle"><path d="M48.6,54 L50,17 L51.4,54 Z"/></g>
+          <circle class="g-cap" cx="50" cy="50" r="5.5"/>
+        </svg>
+        <span class="sp-steam"><i></i><i></i><i></i></span>
+      </div>
       <svg class="brand-flame" id="brandFlame" aria-hidden="true"><use href="#flame"/></svg>
       <div>
         <h1 id="appTitle">%TITLE%</h1>

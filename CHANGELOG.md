@@ -15,6 +15,7 @@
 - The old `history.json` is moved into daily files the first time the new version starts.
 
 **Settings**
+- **Theme:** choose Modern, the look so far, or Steampunk: brass and mahogany, parchment by day and oxblood leather by night. A pressure gauge in the header shows the boiler's demand, gears turn faster while it fires, and steam rises while the boiler or hot water is on. Light and dark mode still apply. Each browser remembers its own choice.
 - **Open on:** choose the page the panel opens on, on every device and in the phone app, or leave it opening wherever you left off. A link or phone shortcut to a particular page still opens that page.
 
 **Fixes**
