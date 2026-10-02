@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 (not released yet)
+## 1.1.1 (not released yet)
 
 - **History tab.** Any day, week, month or year the app has recorded, with room temperatures, boiler, zone and hot water hours, and electricity and cost. Turn on **Compare with last year** to see the same period a year earlier beside it.
 - **Years of history.** Every reading is kept for a year, then thinned to one every half hour and kept for five years. Both can be changed under **Settings → Recording**.

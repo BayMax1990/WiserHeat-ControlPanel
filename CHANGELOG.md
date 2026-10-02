@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 (not released yet)
+## 1.1.1 (not released yet)
 
 **Years of history**
 - A new **History** tab: any day, week, month or year, with arrows to step back through them.
