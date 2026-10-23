@@ -827,6 +827,7 @@ div.field { flex-direction: row; align-items: baseline; gap: 8px; margin-bottom:
 .boost-title svg { width: 22px; height: 22px; color: var(--warm); }
 .boost-opts { display: flex; flex-wrap: wrap; gap: 18px; margin: 0 0 16px; }
 .boost-opts span { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 5px; }
+.boost-opts .boost-by { flex-basis: 100%; }
 .chip-links.inline { margin: 0 0 0 auto; }
 .btn.warm:disabled { background: var(--panel-2); border-color: var(--line); color: var(--ink-3); }
 .boost-opts .seg button[aria-pressed="true"], .popover .seg button[aria-pressed="true"] { background: var(--warm); color: #fff; font-weight: 700; }
@@ -1070,6 +1071,8 @@ dialog::backdrop { background: rgb(10 16 24 / .45); backdrop-filter: blur(2px); 
 }
 .popover h3 { margin: 0 0 10px; font: 650 15px var(--display); display: flex; align-items: center; gap: 8px; }
 .popover h3 svg { color: var(--warm); }
+.popover .pop-close { margin-left: auto; width: 28px; height: 28px; flex: none; }
+.popover .pop-close svg { width: 15px; height: 15px; color: inherit; }
 .popover .row { margin-bottom: 12px; }
 .popover .row > span { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 5px; }
 .popover .seg { display: flex; }

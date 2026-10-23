@@ -1465,7 +1465,7 @@ function hwSetMode(v) {
 }
 function openHwBoost(anchor) {
   const pop = $('#popover');
-  pop.innerHTML = `<h3>${icon('droplets')}Boost hot water</h3>
+  pop.innerHTML = `<h3>${icon('droplets')}Boost hot water<button class="icon-btn pop-close" data-b="close" aria-label="Close without boosting">${icon('x')}</button></h3>
     <div class="row"><span>On for</span><div class="seg">${[30, 60, 120, 180].map((m) => `<button data-b="${m}">${m >= 60 ? `${m / 60} h` : `${m} min`}</button>`).join('')}</div></div>`;
   pop.hidden = false;
   const a = anchor.getBoundingClientRect();
@@ -1475,6 +1475,7 @@ function openHwBoost(anchor) {
     const b = e.target.closest('[data-b]');
     if (!b) return;
     closePopover();
+    if (b.dataset.b === 'close') return;
     const m = Number(b.dataset.b);
     setHotWater({ RequestOverride: { Type: 'Manual', DurationMinutes: m, SetPoint: 1100 } }, `Hot water boosted for ${m >= 60 ? `${m / 60} h` : `${m} min`}`);
   };
@@ -3051,7 +3052,7 @@ function openBoost(anchor, roomId) {
   const r = all ? null : roomById(roomId);
   const draw = () => {
     const durTxt = boostPrefs.minutes >= 60 ? `${boostPrefs.minutes / 60} h` : `${boostPrefs.minutes} min`;
-    pop.innerHTML = `<h3>${icon('flame')}${all ? 'Boost every room' : `Boost ${esc(roomName(r))}`}</h3>
+    pop.innerHTML = `<h3>${icon('flame')}${all ? 'Boost every room' : `Boost ${esc(roomName(r))}`}<button class="icon-btn pop-close" data-b="close" aria-label="Close without boosting">${icon('x')}</button></h3>
       <div class="row"><span>Warmer by</span><div class="seg">${[10, 20, 30].map((a) => `<button data-b="amount" data-v="${a}" aria-pressed="${boostPrefs.amount === a}">+${a / 10}°</button>`).join('')}</div></div>
       <div class="row"><span>For</span><div class="seg">${[30, 60, 120, 180].map((m) => `<button data-b="minutes" data-v="${m}" aria-pressed="${boostPrefs.minutes === m}">${m >= 60 ? m / 60 + ' h' : m + ' min'}</button>`).join('')}</div></div>
       <button class="btn warm" data-b="go">${icon('flame')}${all ? `Boost all +${boostPrefs.amount / 10}° for ${durTxt}` : `Boost to ${fmtT(boostTarget(r, boostPrefs.amount))} for ${durTxt}`}</button>`;
@@ -3066,6 +3067,7 @@ function openBoost(anchor, roomId) {
   pop.onclick = (e) => {
     const b = e.target.closest('[data-b]');
     if (!b) return;
+    if (b.dataset.b === 'close') return closePopover();
     if (b.dataset.b === 'go') {
       closePopover();
       boostRooms(all ? state.domain.Room.filter((x) => x.CalculatedTemperature !== NO_READING) : [r], boostPrefs.amount, boostPrefs.minutes);
@@ -3085,30 +3087,51 @@ function setDialogHTML(dlg, html) {
 
 // Boost a hand-picked set of rooms (Rooms page header).
 function openBoostPicker() {
-  const picked = new Set();
+  const picked = new Set(); // room ids
+  const pickedG = new Set(); // group ids, OTHER for rooms not in a group
+  const OTHER = '__other';
   const list = rooms();
+  const { loose, groups } = roomGroups();
+  const bundles = [...groups, ...(loose.length ? [{ id: OTHER, name: 'Other rooms', list: loose }] : [])];
+  let by = store.get('boostBy', 'rooms') === 'groups' && bundles.length ? 'groups' : 'rooms';
+  // The rooms to boost, from whichever list is showing.
+  const chosen = () => (by === 'groups'
+    ? [...new Set(bundles.filter((g) => pickedG.has(g.id)).flatMap((g) => g.list))]
+    : list.filter((r) => picked.has(r.id)));
   const durTxt = (m) => (m >= 60 ? `${m / 60} ${m === 60 ? 'hour' : 'hours'}` : `${m} minutes`);
-  const footLabel = () => (picked.size
-    ? `${icon('flame')}Boost ${picked.size} ${picked.size === 1 ? 'room' : 'rooms'} for ${durTxt(boostPrefs.minutes)}`
-    : `${icon('flame')}Tick rooms to boost`);
+  const footLabel = () => {
+    const n = chosen().length;
+    if (!n) return `${icon('flame')}Tick ${by} to boost`;
+    const what = by === 'groups'
+      ? `${pickedG.size} ${pickedG.size === 1 ? 'group' : 'groups'} (${n} ${n === 1 ? 'room' : 'rooms'})`
+      : `${n} ${n === 1 ? 'room' : 'rooms'}`;
+    return `${icon('flame')}Boost ${what} for ${durTxt(boostPrefs.minutes)}`;
+  };
+  const roomRows = () => list.map((r) => {
+    const t = roomTemp(r);
+    const ov = overrideInfo(r);
+    return `<label class="pick"><input type="checkbox" value="${r.id}" ${picked.has(r.id) ? 'checked' : ''}>${icon(roomIcon(r))}
+      <span><b>${esc(roomName(r))}</b><small>${t == null ? 'No reading' : fmtT(t)} now, boost to ${fmtT(boostTarget(r, boostPrefs.amount))}${ov?.boost ? `. Already boosted until ${ov.until}` : ''}</small></span></label>`;
+  }).join('');
+  const groupRows = () => bundles.map((g) => {
+    const boosted = g.list.filter((r) => overrideInfo(r)?.boost).length;
+    return `<label class="pick"><input type="checkbox" value="${esc(g.id)}" ${pickedG.has(g.id) ? 'checked' : ''} ${g.list.length ? '' : 'disabled'}>${icon(g.id === OTHER ? 'house' : 'layers')}
+      <span><b>${esc(g.name)}</b><small>${g.list.length ? esc(g.list.map(roomName).join(', ')) : 'No rooms in this group'}${boosted ? `. ${boosted === g.list.length ? 'Already boosted' : `${boosted} already boosted`}` : ''}</small></span></label>`;
+  }).join('');
   const body = () => `<div class="modal-body">
       <h2 class="boost-title">${icon('flame')}Boost rooms</h2>
-      <p>Tick the rooms to warm up. Each one is boosted from its current temperature, then goes back to normal when the time is up.</p>
+      <p>Tick the ${by} to warm up. Each room is boosted from its current temperature, then goes back to normal when the time is up.</p>
       <div class="boost-opts">
         <div><span>Warmer by</span><div class="seg">${[10, 20, 30].map((a) => `<button data-md="amount" data-v="${a}" aria-pressed="${boostPrefs.amount === a}">+${a / 10}°</button>`).join('')}</div></div>
         <div><span>For</span><div class="seg">${[30, 60, 120, 180].map((m) => `<button data-md="minutes" data-v="${m}" aria-pressed="${boostPrefs.minutes === m}">${m >= 60 ? m / 60 + ' h' : m + ' min'}</button>`).join('')}</div></div>
+        <div class="boost-by"><span>Pick by</span><div class="seg" role="group" aria-label="Pick by">${[['rooms', 'Rooms'], ['groups', 'Groups']].map(([v, l]) => `<button data-md="by" data-v="${v}" aria-pressed="${by === v}" ${v === 'groups' && !bundles.length ? 'disabled data-tip="Make groups on the Rooms tab first"' : ''}>${icon(v === 'rooms' ? 'house' : 'layers')}${l}</button>`).join('')}</div></div>
       </div>
-      <div class="field">Rooms <span class="chip-links inline"><button data-md="all">All rooms</button><button data-md="none">None</button></span></div>
-      <div class="room-pick">${list.map((r) => {
-        const t = roomTemp(r);
-        const ov = overrideInfo(r);
-        return `<label class="pick"><input type="checkbox" value="${r.id}" ${picked.has(r.id) ? 'checked' : ''}>${icon(roomIcon(r))}
-          <span><b>${esc(roomName(r))}</b><small>${t == null ? 'No reading' : fmtT(t)} now, boost to ${fmtT(boostTarget(r, boostPrefs.amount))}${ov?.boost ? `. Already boosted until ${ov.until}` : ''}</small></span></label>`;
-      }).join('')}</div>
+      <div class="field">${by === 'groups' ? 'Groups' : 'Rooms'} <span class="chip-links inline"><button data-md="all">${by === 'groups' ? 'All groups' : 'All rooms'}</button><button data-md="none">None</button></span></div>
+      <div class="room-pick">${by === 'groups' ? groupRows() : roomRows()}</div>
     </div>
     <div class="modal-foot">
       <button class="btn ghost" data-md="cancel">Cancel</button>
-      <button class="btn warm" data-md="go" id="boostGo" ${picked.size ? '' : 'disabled'}>${footLabel()}</button>
+      <button class="btn warm" data-md="go" id="boostGo" ${chosen().length ? '' : 'disabled'}>${footLabel()}</button>
     </div>`;
   const redraw = (focusSel) => {
     setDialogHTML($('#modal'), body());
@@ -3116,24 +3139,37 @@ function openBoostPicker() {
   };
   openModal(body(), (act, el) => {
     if (act === 'pick') {
-      picked.clear();
-      for (const id of pickedRooms()) picked.add(id);
+      if (by === 'groups') {
+        pickedG.clear();
+        for (const i of $$('#modal .room-pick input:checked')) pickedG.add(i.value);
+      } else {
+        picked.clear();
+        for (const id of pickedRooms()) picked.add(id);
+      }
       const go = $('#boostGo');
-      go.disabled = !picked.size;
+      go.disabled = !chosen().length;
       go.innerHTML = footLabel();
       return;
+    }
+    if (act === 'by') {
+      by = el.dataset.v;
+      store.set('boostBy', by);
+      return redraw(`[data-md="by"][data-v="${by}"]`);
     }
     if (act === 'amount' || act === 'minutes') {
       boostPrefs[act] = Number(el.dataset.v);
       store.set(act === 'amount' ? 'boostAmount' : 'boostMinutes', boostPrefs[act]);
       return redraw(`[data-md="${act}"][data-v="${el.dataset.v}"]`);
     }
-    if (act === 'all') { for (const r of list) picked.add(r.id); return redraw('[data-md="all"]'); }
-    if (act === 'none') { picked.clear(); return redraw('[data-md="none"]'); }
-    if (act === 'go' && picked.size) {
-      const chosen = list.filter((r) => picked.has(r.id));
+    if (act === 'all') {
+      if (by === 'groups') { for (const g of bundles) if (g.list.length) pickedG.add(g.id); } else for (const r of list) picked.add(r.id);
+      return redraw('[data-md="all"]');
+    }
+    if (act === 'none') { (by === 'groups' ? pickedG : picked).clear(); return redraw('[data-md="none"]'); }
+    if (act === 'go' && chosen().length) {
+      const go = chosen();
       closeModal();
-      boostRooms(chosen, boostPrefs.amount, boostPrefs.minutes);
+      boostRooms(go, boostPrefs.amount, boostPrefs.minutes);
     }
   });
 }
@@ -4016,7 +4052,8 @@ const hideTip = () => { tip().hidden = true; };
 
 document.addEventListener('click', (e) => {
   const pop = $('#popover');
-  if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('[data-act="boost-open"], [data-act="hw-boost"]')) closePopover();
+  // composedPath() is fixed at dispatch, so a click that redraws the popover still counts as inside it.
+  if (!pop.hidden && !e.composedPath().includes(pop) && !e.target.closest('[data-act="boost-open"], [data-act="hw-boost"]')) closePopover();
 
   const tab = e.target.closest('.tabs button');
   if (tab) {
