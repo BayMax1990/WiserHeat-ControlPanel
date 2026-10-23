@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.1.2 (not released yet)
+## 1.1.2
+
+**Boost**
+- **Boost rooms** can now pick by **Groups** as well as Rooms, so you can boost all of Downstairs in one go. Rooms not in a group appear as *Other rooms*. It remembers which you used last.
+
+**Fixes**
+- A room's or the hot water's **Boost** pop-up closed as soon as you chose how much warmer or how long. It now stays open until you press Boost, and has a close button.
+
+## 1.1.1
 
 **Years of history**
 - A new **History** tab: any day, week, month or year, with arrows to step back through them.
@@ -20,11 +28,7 @@
 - A **Blueprint** theme: the heating as an engineer's drawing, blue ink on a white sheet by day and a cyanotype by night, on a drafting grid. Panels are framed like drawing sheets, headings end in dimension lines, and icons sit in callout bubbles. The header has a schematic of the boiler and a radiator: while the boiler fires, the flame lights and arrows run through the flow and return pipes, faster with its demand.
 - **Open on:** choose the page the panel opens on, on every device and in the phone app, or leave it opening wherever you left off. A link or phone shortcut to a particular page still opens that page.
 
-**Boost**
-- **Boost rooms** can now pick by **Groups** as well as Rooms, so you can boost all of Downstairs in one go. Rooms not in a group appear as *Other rooms*. It remembers which you used last.
-
 **Fixes**
-- A room's or the hot water's **Boost** pop-up closed as soon as you chose how much warmer or how long. It now stays open until you press Boost, and has a close button.
 - Diagnostics showed the boiler's switching band as "Off". It now shows the band itself, such as 0.5°.
 
 ## 1.1.0
